@@ -1,3 +1,4 @@
+from contextlib import ExitStack
 import hashlib
 import importlib.util
 from pathlib import Path
@@ -21,18 +22,20 @@ REF = updater.REGISTRY + "@sha256:" + DIGEST
 
 class ImageUpdateTest(unittest.TestCase):
     def setUp(self):
-        temp = self.enterContext(TemporaryDirectory())
+        contexts = ExitStack()
+        self.addCleanup(contexts.close)
+        temp = contexts.enter_context(TemporaryDirectory())
         root = Path(temp) / "versions"
         root.mkdir()
         state = Path(temp) / "state"
         state.mkdir()
-        self.enterContext(patch.multiple(updater, ROOT=root, STATE=state))
+        contexts.enter_context(patch.multiple(updater, ROOT=root, STATE=state))
         self.previous = root / OLD
         self.previous.mkdir()
         (self.previous / updater.BINARY).write_bytes(b"old")
         (root / "current").symlink_to(self.previous)
         self.info = {"binarySha256": hashlib.sha256(b"new").hexdigest()}
-        self.command = self.enterContext(patch.object(
+        self.command = contexts.enter_context(patch.object(
             updater, "command", return_value=SimpleNamespace(returncode=0, stdout="-state-dir /private")
         ))
 
