@@ -15,7 +15,7 @@
 
 宿主内核的校验服务使用固定绝对路径 `-kernel-binary` 和配置数据目录 `-kernel-home`。将校验 unit 的 `User` 改为目标内核用户，令校验目录和 socket 可供面板用户按组访问。Docker 校验 unit 的 `VALIDATOR_ARGS` 指定 `-kernel-home`、`-docker-binary /usr/bin/docker` 和 `-docker-image <sha256:镜像ID>`；Mihomo 以 `/mihomo -t` 在无网络的临时容器中校验。使用 Unix socket `/run/metacubexd-validator/validate.sock`。面板账户需要读取和原子替换该唯一启动文件的目录权限及自己的状态目录；面板 unit 用 `ReadWritePaths` 限定写入目录。现场确认启动文件权限适用于目标内核账户。面板账户不加入 Docker 组。
 
-运行态探针设置用权限受限的 JSON。`Proxy` 是目标实例已有的本机 HTTP 或 mixed 监听器。`Target` 是纵向对照要访问的受控域名及端口。`BaselinePolicy` 是现行配置的预期策略，托管规则命中时服务会要求实际连接进入指定家宽链路。分别登记 OpenAI、Antigravity 和非白名单目标，使用能接受 CONNECT 的服务。先在隔离环境验证探针可观察到连接。
+运行态探针设置用权限受限的 JSON。`Proxy` 是目标实例已有的本机 HTTP 或 mixed 监听器。Docker 转发会改写源地址或端口时，使用宿主机直连网段内该 Mihomo 容器的固定私网 IP 和容器监听端口。发布前核对容器地址；探针按目标域名、源地址和源端口识别自己的连接。`Target` 是纵向对照要访问的受控域名及端口。`BaselinePolicy` 是现行配置的预期策略，托管规则命中时服务会要求实际连接进入指定家宽链路。分别登记 OpenAI、Antigravity 和非白名单目标，使用能接受 CONNECT 的服务。先在隔离环境验证探针可观察到连接。
 
 ```json
 {
