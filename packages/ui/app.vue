@@ -7,6 +7,7 @@ useHead({
 })
 
 const configStore = useConfigStore()
+const goServer = useRuntimeConfig().public.goServer
 
 // vue-sonner defaults to a light theme, but the app default theme is dark, so an
 // unbound toaster ships bright cards over a dark UI. Derive the toaster theme
@@ -35,7 +36,7 @@ onMounted(() => nextTick(syncToasterTheme))
 </script>
 
 <template>
-  <NuxtLayout>
+  <NuxtLayout v-if="!goServer">
     <NuxtPage
       :transition="{
         name: 'page',
@@ -43,8 +44,11 @@ onMounted(() => nextTick(syncToasterTheme))
       }"
     />
   </NuxtLayout>
+  <ServerPanel v-else>
+    <NuxtPage />
+  </ServerPanel>
 
-  <PwaUpdatePrompt />
+  <PwaUpdatePrompt v-if="!goServer" />
 
   <!-- vue-sonner toast outlet (desktop control surface uses toasts). Top-center
        keeps clear of the bottom-right traffic widget + the mobile bottom nav;

@@ -15,6 +15,7 @@ import byteSize from 'byte-size'
 import { getChartThemeColors } from '~/utils'
 
 const { t } = useI18n()
+const goServer = useRuntimeConfig().public.goServer
 
 useHead({ title: computed(() => t('overview')) })
 const globalStore = useGlobalStore()
@@ -597,7 +598,7 @@ watch(
     </div>
 
     <!-- Network Info Section -->
-    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+    <div v-if="!goServer" class="grid grid-cols-1 gap-4 md:grid-cols-2">
       <IPInfoCard />
       <LatencyCard />
     </div>

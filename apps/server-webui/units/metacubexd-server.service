@@ -1,0 +1,25 @@
+[Unit]
+Description=MetaCubeXD server panel
+After=network.target
+
+[Service]
+Type=simple
+User=metacubexd
+Group=metacubexd
+ExecStart=/opt/metacubexd-server/current/metacubexd-server -listen 127.0.0.1:18443 -admin-file /etc/metacubexd-server/admin -controller http://127.0.0.1:9090
+Restart=on-failure
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadOnlyPaths=/etc/metacubexd-server
+InaccessiblePaths=-/run/docker.sock -/run/containerd/containerd.sock
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

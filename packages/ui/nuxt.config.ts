@@ -10,7 +10,8 @@ const isDev = process.env.NODE_ENV === 'development'
 // A service worker is pointless in the packaged app (loaded from the in-process
 // loopback server, no offline benefit) and only adds stale-cache risk + console
 // noise, so the whole PWA/SW layer is disabled for that target.
-const pwaDisabled = process.env.MCXD_DISABLE_PWA === 'true'
+const goServer = process.env.MCXD_GO_SERVER === 'true'
+const pwaDisabled = goServer || process.env.MCXD_DISABLE_PWA === 'true'
 
 const appBaseURL = process.env.NUXT_APP_BASE_URL || '/'
 
@@ -51,6 +52,7 @@ export default defineNuxtConfig({
     public: {
       appVersion: pkg.version,
       mockMode: process.env.MOCK_MODE === 'true',
+      goServer,
       defaultBackendURL: '',
       githubToken: '',
     },
@@ -62,7 +64,7 @@ export default defineNuxtConfig({
     '@pinia/nuxt',
     '@nuxtjs/i18n',
     '@nuxt/fonts',
-    '@vite-pwa/nuxt',
+    ...(goServer ? [] : ['@vite-pwa/nuxt']),
   ],
 
   // PWA configuration

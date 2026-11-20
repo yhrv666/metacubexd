@@ -1,0 +1,25 @@
+[Unit]
+Description=MetaCubeXD isolated Mihomo validation worker
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=metacubexd
+UMask=0007
+RuntimeDirectory=metacubexd-validator
+RuntimeDirectoryMode=0750
+Environment=TMPDIR=/run/metacubexd-validator
+EnvironmentFile=/etc/metacubexd-server/validator.env
+ExecStart=/opt/metacubexd-server/current/metacubexd-server -validator-service -validator-socket /run/metacubexd-validator/validate.sock $VALIDATOR_ARGS
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/run/metacubexd-validator
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target

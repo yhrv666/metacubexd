@@ -13,6 +13,7 @@ import { db } from '~/utils/db'
 export const useConnectionsStore = defineStore('connections', () => {
   const globalStore = useGlobalStore()
   const configStore = useConfigStore()
+  const goServer = useRuntimeConfig().public.goServer
 
   // State
   // shallowRef: these hold large arrays of connection objects replaced wholesale
@@ -198,8 +199,10 @@ export const useConnectionsStore = defineStore('connections', () => {
       currentUploadTotal < lastUploadTotal ||
       currentDownloadTotal < lastDownloadTotal
     ) {
-      resetConnectionTracking()
-      clearDataUsage()
+      if (!goServer) {
+        resetConnectionTracking()
+        clearDataUsage()
+      }
       globalStore.clearChartHistory()
     }
 
@@ -210,7 +213,7 @@ export const useConnectionsStore = defineStore('connections', () => {
 
     // An empty snapshot still starts the tracking session, so connections
     // appearing in a later snapshot include their initial bytes.
-    if (configStore.enableDataUsageTracking) {
+    if (configStore.enableDataUsageTracking && !goServer) {
       updateDataUsage(rawConns)
     }
 
@@ -368,6 +371,13 @@ export const useConnectionsStore = defineStore('connections', () => {
     speedGroupByName,
     updateFromWsMsg,
     clearDataUsage,
+    clearMonitor() {
+      allConnections.value = []
+      activeConnections.value = []
+      closedConnections.value = []
+      latestConnectionMsg.value = null
+      paused.value = false
+    },
     removeDataUsageEntry,
     restructRawMsgToConnection,
   }

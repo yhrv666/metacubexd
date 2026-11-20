@@ -33,6 +33,7 @@ import {
 import { renderTwoLineCell } from '~/utils/connectionCells'
 
 const { t, locale } = useI18n()
+const goServer = useRuntimeConfig().public.goServer === true
 
 useHead({ title: computed(() => t('connections')) })
 const connectionsStore = useConnectionsStore()
@@ -437,6 +438,8 @@ const visibleColumns = computed(() => {
     .filter((col) => visibility[col.id] === true)
 })
 
+if (goServer) allColumns.shift()
+
 const sortableColumns = computed(() => allColumns.filter((col) => col.sortable))
 
 const groupableColumns = computed(() =>
@@ -719,6 +722,7 @@ function exportConnectionsJSON() {
       :global-filter="globalFilter"
       :paused="connectionsStore.paused"
       :is-closing-connections="isClosingConnections"
+      :read-only="goServer"
       :display-mode="configStore.connectionsDisplayMode"
       :groupable-columns="groupableColumns"
       :grouping-column="groupingColumn"

@@ -1,0 +1,85 @@
+name: Server CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, 'feat/server-webui', 'server/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    if: github.repository == 'yhrv666/metacubexd'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 10.34.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24.22.1
+          cache: pnpm
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.26.2
+          cache: false
+      - run: pnpm install --frozen-lockfile --filter @metacubexd/ui...
+      - run: pnpm --filter @metacubexd/ui test:unit
+      - run: pnpm --filter @metacubexd/ui typecheck
+      - run: go test -race ./...
+        working-directory: apps/server-webui
+      - run: go vet ./...
+        working-directory: apps/server-webui
+      - name: Verify release isolation and tool versions
+        run: |
+          grep -F "if: github.repository == 'MetaCubeX/metacubexd'" .github/workflows/release.yml
+          test "$(node --version)" = v24.22.1
+          test "$(pnpm --version)" = 10.34.1
+          test "$(go env GOVERSION)" = go1.26.2
+      - name: Isolated systemd and Docker integration
+        working-directory: apps/server-webui
+        run: |
+          fixture=$(mktemp -d)
+          trap 'rm -rf "$fixture"' EXIT
+          curl -fsSL --retry 3 https://github.com/MetaCubeX/mihomo/releases/download/v1.19.34/mihomo-linux-amd64-v1-v1.19.34.gz -o "$fixture/mihomo.gz"
+          printf '%s  %s\n' 0c07340a01408d033dda4088ea2a4c1e4d82aeed7b2f84f7c046e93b6ff3290c "$fixture/mihomo.gz" | sha256sum -c -
+          gzip -dc "$fixture/mihomo.gz" > "$fixture/mihomo"
+          chmod 755 "$fixture/mihomo"
+          MCXD_INSTANCE_TEST=systemd MCXD_FIXTURE_MIHOMO="$fixture/mihomo" go test -v -count=1 -run '^TestIsolatedMihomoInstance$'
+          printf 'FROM scratch\nCOPY mihomo /mihomo\nENTRYPOINT ["/mihomo"]\n' > "$fixture/Dockerfile"
+          docker build --network=none --quiet -t mcxd-fixture:v1.19.34 "$fixture"
+          MCXD_INSTANCE_TEST=docker MCXD_FIXTURE_IMAGE="$(docker image inspect -f '{{.Id}}' mcxd-fixture:v1.19.34)" go test -v -count=1 -run '^TestIsolatedMihomoInstance$'
+      - name: Playwright and embedded UI
+        run: |
+          pnpm --filter @metacubexd/ui exec playwright install --with-deps chromium
+          node apps/server-webui/build-ui.mjs
+          node packages/ui/scripts/check-server-build.mjs
+      - name: Build and verify packages
+        run: bash apps/server-webui/package.sh "$RUNNER_TEMP/server-packages"
+      - name: Scan changes and packages for credentials
+        run: |
+          scan=$(mktemp -d)
+          trap 'rm -rf "$scan"' EXIT
+          curl -fsSL --retry 3 https://github.com/gitleaks/gitleaks/releases/download/v8.30.0/gitleaks_8.30.0_linux_x64.tar.gz -o "$scan/gitleaks.tar.gz"
+          printf '%s  %s\n' 79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e "$scan/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf "$scan/gitleaks.tar.gz" -C "$scan" gitleaks
+          "$scan/gitleaks" git --redact --no-banner --log-opts=51f46a7c..HEAD .
+          "$scan/gitleaks" dir --redact --no-banner --max-archive-depth=2 "$RUNNER_TEMP/server-packages"
+      - name: 5000 connections at 1 Hz in five tabs for 30 minutes
+        env:
+          MCXD_PERF_SECONDS: '1800'
+        run: node packages/ui/scripts/check-server-build.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: server-packages-${{ github.sha }}
+          path: ${{ runner.temp }}/server-packages
+          if-no-files-found: error
+          retention-days: 30
