@@ -38,6 +38,8 @@ jobs:
         working-directory: apps/server-webui
       - run: go vet ./...
         working-directory: apps/server-webui
+      - name: Verify pull deployment and rollback
+        run: python3 -B -m unittest discover -s apps/server-webui/units -p 'test_*.py'
       - name: Verify release isolation and tool versions
         run: |
           grep -F "if: github.repository == 'MetaCubeX/metacubexd'" .github/workflows/release.yml

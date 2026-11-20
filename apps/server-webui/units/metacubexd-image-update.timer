@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll for MetaCubeXD server image releases
+
+[Timer]
+OnBootSec=2min
+OnActiveSec=2min
+OnUnitInactiveSec=10min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
