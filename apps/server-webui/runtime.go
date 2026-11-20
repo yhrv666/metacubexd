@@ -36,8 +36,14 @@ type routeProbe struct {
 func (p probeSpec) valid() bool {
 	host, port, err := net.SplitHostPort(p.Proxy)
 	n, portErr := strconv.ParseUint(port, 10, 16)
-	if err != nil || portErr != nil || n == 0 || !loopback(host) || len(p.Probes) == 0 || len(p.Probes) > 12 {
+	if err != nil || portErr != nil || n == 0 || len(p.Probes) == 0 || len(p.Probes) > 12 {
 		return false
+	}
+	if !loopback(host) {
+		addresses, err := net.InterfaceAddrs()
+		if err != nil || !attachedPrivateAddress(host, addresses) {
+			return false
+		}
 	}
 	for _, probe := range p.Probes {
 		name, port, err := net.SplitHostPort(probe.Target)
@@ -47,6 +53,20 @@ func (p probeSpec) valid() bool {
 		}
 	}
 	return true
+}
+
+func attachedPrivateAddress(host string, addresses []net.Addr) bool {
+	addr, err := netip.ParseAddr(host)
+	if err != nil || addr.Zone() != "" || !addr.IsPrivate() {
+		return false
+	}
+	for _, local := range addresses {
+		prefix, err := netip.ParsePrefix(local.String())
+		if err == nil && prefix.Bits() > 0 && prefix.Contains(addr.Unmap()) {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *fixedInstance) Validate(ctx context.Context, data []byte) error {
@@ -222,6 +242,8 @@ func (f *fixedInstance) testRoute(ctx context.Context, probe routeProbe, configu
 	}
 	addr := conn.LocalAddr().(*net.TCPAddr).AddrPort()
 	expected := expectedPolicy(probe, addr.Addr().Unmap(), configured, observed)
+	host, _, _ := net.SplitHostPort(probe.Target)
+	sourcePort := strconv.Itoa(int(addr.Port()))
 	deadline := time.NewTimer(3 * time.Second)
 	defer deadline.Stop()
 	tick := time.NewTicker(100 * time.Millisecond)
@@ -231,6 +253,7 @@ func (f *fixedInstance) testRoute(ctx context.Context, probe routeProbe, configu
 			Connections []struct {
 				Chains   []string
 				Metadata struct {
+					SourceIP   string
 					SourcePort string
 					Host       string
 				}
@@ -238,12 +261,18 @@ func (f *fixedInstance) testRoute(ctx context.Context, probe routeProbe, configu
 		}
 		if f.get(ctx, "connections", &snapshot) {
 			for _, active := range snapshot.Connections {
-				if active.Metadata.SourcePort == strconv.Itoa(int(addr.Port())) {
-					if slices.Contains(active.Chains, expected) {
-						return nil
-					}
-					return errors.New(mismatch)
+				metadata := active.Metadata
+				if metadata.SourcePort != sourcePort || !strings.EqualFold(strings.TrimSuffix(metadata.Host, "."), host) {
+					continue
 				}
+				source, err := netip.ParseAddr(metadata.SourceIP)
+				if err != nil || source.Unmap() != addr.Addr().Unmap() {
+					continue
+				}
+				if slices.Contains(active.Chains, expected) {
+					return nil
+				}
+				return errors.New(mismatch)
 			}
 		}
 		select {
