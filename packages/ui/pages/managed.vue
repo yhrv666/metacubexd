@@ -420,7 +420,11 @@ async function apply(action: 'publish' | 'rollback', id: string) {
     <section v-if="state?.history?.length" class="grid gap-2">
       <h2 class="text-lg font-semibold">配置历史</h2>
       <label class="grid gap-1"
-        >回滚版本<select v-model="rollbackTarget" class="select w-full">
+        >回滚版本<select
+          v-model="rollbackTarget"
+          class="select w-full"
+          :disabled="pending || !state.writable"
+        >
           <option disabled value="">选择历史版本</option>
           <option v-for="item in state.history" :key="item.id" :value="item.id">
             {{ new Date(item.created).toLocaleString() }} ·

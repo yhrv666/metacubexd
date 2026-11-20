@@ -241,14 +241,17 @@ try {
       .getByLabel('HTTPS 订阅地址')
       .fill('https://subscription.example/?value=synthetic-private')
     await initial.getByRole('button', { name: '新增或替换凭据' }).click()
+    const awaitingRefresh = initial.getByText('等待首次刷新', { exact: true })
+    await awaitingRefresh.waitFor()
     await initial.getByRole('button', { name: '刷新', exact: true }).click()
-    let refreshed = ''
-    await waitUntil(async () => {
-      const response = await context.request.get(url + '/api/managed/state')
-      if (!response.ok()) return false
-      refreshed = await response.text()
-      return Boolean(JSON.parse(refreshed).subscriptions?.[0]?.refreshed)
-    }, 'the refreshed subscription revision is unavailable')
+    await awaitingRefresh.waitFor({ state: 'hidden' })
+    const revision = await context.request.get(url + '/api/managed/state')
+    assert.ok(
+      revision.ok(),
+      'the refreshed subscription revision is unavailable',
+    )
+    const refreshed = await revision.text()
+    assert.ok(JSON.parse(refreshed).subscriptions?.[0]?.refreshed)
     assert.ok(
       refreshed.includes('openai') && !refreshed.includes('synthetic-private'),
     )
