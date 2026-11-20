@@ -30,6 +30,7 @@ const props = defineProps<{
   globalFilter: string
   paused: boolean
   isClosingConnections: boolean
+  readOnly?: boolean
   // Card-mode controls
   displayMode: 'auto' | 'table' | 'card'
   groupableColumns: ConnectionColumn[]
@@ -169,6 +170,7 @@ const groupOptions = computed(() => [
         </button>
 
         <button
+          v-if="!readOnly"
           class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-base-content/12 bg-base-200/60 text-base-content transition-all duration-200 hover:border-error/30 hover:bg-error/15 hover:text-error disabled:cursor-not-allowed disabled:opacity-50"
           :disabled="isClosingConnections"
           @click="emit('closeConnections')"

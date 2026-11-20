@@ -1,0 +1,1 @@
+Run node apps/server-webui/build-ui.mjs to embed the server dashboard.

@@ -4,6 +4,11 @@ export default defineNuxtRouteMiddleware((to) => {
 
   // Skip endpoint check in mock mode
   const config = useRuntimeConfig()
+  if (config.public.goServer) {
+    if (!['/overview', '/connections', '/rules', '/logs'].includes(to.path))
+      return navigateTo('/overview', { replace: true })
+    return
+  }
   if (config.public.mockMode) {
     return
   }

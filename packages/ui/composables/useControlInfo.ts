@@ -10,6 +10,10 @@ const ready = ref(false)
 let started = false
 
 function probe() {
+  if (useRuntimeConfig().public.goServer) {
+    ready.value = true
+    return
+  }
   if (started) return
   started = true
   const api = useControlApi()

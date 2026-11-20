@@ -38,6 +38,7 @@ import {
 } from '~/utils'
 
 const { t, locale } = useI18n()
+const goServer = useRuntimeConfig().public.goServer
 const router = useRouter()
 
 const configStore = useConfigStore()
@@ -347,7 +348,7 @@ async function openFullEditor() {
           </Button>
 
           <Button
-            v-if="activeTab === 'ruleProviders'"
+            v-if="!goServer && activeTab === 'ruleProviders'"
             class="flex h-9 w-9 items-center justify-center rounded-[0.625rem] border border-primary/20 bg-primary/10 text-primary transition-all duration-200 hover:bg-primary/20"
             :disabled="allProviderIsUpdating"
             @click="onUpdateAllProvider"
@@ -648,6 +649,7 @@ async function openFullEditor() {
                       {{ item.data.ruleCount }}
                     </div>
                     <Button
+                      v-if="!goServer"
                       class="flex h-7 w-7 items-center justify-center rounded-lg border border-base-content/8 bg-base-content/5 transition-all duration-200 hover:border-primary/30 hover:bg-primary/15 hover:text-primary"
                       :disabled="updatingMap[item.data.name]"
                       @click="onUpdateProvider(item.data.name)"

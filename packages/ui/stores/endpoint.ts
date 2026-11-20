@@ -2,14 +2,22 @@ import type { Endpoint } from '~/types'
 import { defineStore } from 'pinia'
 
 export const useEndpointStore = defineStore('endpoint', () => {
+  const server = useRuntimeConfig().public.goServer
   // State
   const selectedEndpoint = useLocalStorage<string>('selectedEndpoint', '')
   const endpointList = useLocalStorage<Endpoint[]>('endpointList', [])
 
   // Getters
-  const currentEndpoint = computed(() =>
-    endpointList.value.find(({ id }) => id === selectedEndpoint.value),
-  )
+  const currentEndpoint = computed<Endpoint | undefined>(() => {
+    if (server && import.meta.client) {
+      return {
+        id: 'server',
+        url: new URL('/api/monitor', location.origin).href,
+        secret: '',
+      }
+    }
+    return endpointList.value.find(({ id }) => id === selectedEndpoint.value)
+  })
 
   const wsEndpointURL = computed(() => {
     const endpoint = currentEndpoint.value

@@ -31,6 +31,8 @@ jobs:
           cache: false
       - run: pnpm install --frozen-lockfile --filter @metacubexd/ui...
       - run: pnpm --filter @metacubexd/ui test:unit
+      - run: go test -race ./...
+        working-directory: apps/server-webui
       - name: Verify release isolation and tool versions
         run: |
           grep -F "if: github.repository == 'MetaCubeX/metacubexd'" .github/workflows/release.yml
