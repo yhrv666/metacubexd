@@ -27,6 +27,8 @@ type panel struct {
 	kernel     *kernel
 	static     http.Handler
 	baseConfig string
+	manager    *manager
+	drafts     map[string]managedDraft
 	mu         sync.Mutex
 	sessions   map[string]session
 	failures   int
@@ -35,7 +37,7 @@ type panel struct {
 }
 
 func newPanel(password [32]byte, kernel *kernel, static http.Handler) *panel {
-	return &panel{password: password, kernel: kernel, static: static, sessions: make(map[string]session), sockets: make(chan struct{}, 32)}
+	return &panel{password: password, kernel: kernel, static: static, sessions: make(map[string]session), drafts: make(map[string]managedDraft), sockets: make(chan struct{}, 32)}
 }
 
 func respond(w http.ResponseWriter, status int, result any) {
@@ -114,6 +116,7 @@ func (p *panel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case http.MethodDelete:
 			p.mu.Lock()
 			delete(p.sessions, cookie.Value)
+			delete(p.drafts, cookie.Value)
 			session.cancel()
 			p.mu.Unlock()
 			http.SetCookie(w, &http.Cookie{Name: sessionCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
@@ -127,8 +130,8 @@ func (p *panel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.monitor(w, r, session.ctx, route)
 		return
 	}
-	if r.URL.Path == "/api/managed/preview" && r.Method == http.MethodPost {
-		p.previewManaged(w, r)
+	if route, ok := strings.CutPrefix(r.URL.Path, "/api/managed/"); ok {
+		p.manage(w, r, cookie.Value, route)
 		return
 	}
 	problem(w, http.StatusNotFound, "Capability unavailable")
@@ -160,12 +163,14 @@ func (p *panel) login(w http.ResponseWriter, r *http.Request) {
 	for key, session := range p.sessions {
 		if session.ctx.Err() != nil {
 			delete(p.sessions, key)
+			delete(p.drafts, key)
 		}
 	}
 	if old, err := r.Cookie(sessionCookie); err == nil {
 		if session, ok := p.sessions[old.Value]; ok {
 			session.cancel()
 			delete(p.sessions, old.Value)
+			delete(p.drafts, old.Value)
 		}
 	}
 	if len(p.sessions) >= 16 {
