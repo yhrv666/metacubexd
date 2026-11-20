@@ -1,0 +1,79 @@
+name: Server Release
+
+on:
+  push:
+    tags: ['server-v0.1.0', 'server-v0.1.0-rc.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'yhrv666/metacubexd'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Resolve validated build
+        id: build
+        run: |
+          [[ "$TAG" =~ ^server-v0[.]1[.]0(-rc[.][1-9][0-9]*)?$ ]]
+          test "$(git cat-file -t "refs/tags/$TAG")" = tag
+          sha=$(git rev-parse "refs/tags/$TAG^{commit}")
+          git merge-base --is-ancestor "$sha" origin/main
+          run=$(gh api --method GET "repos/$GH_REPO/actions/workflows/server-ci.yml/runs" -f branch=main -f head_sha="$sha" -f status=success --jq '.workflow_runs | map(select(.event == "push" or .event == "workflow_dispatch")) | .[0].id // empty')
+          test -n "$run"
+          printf 'sha=%s\nrun=%s\n' "$sha" "$run" >> "$GITHUB_OUTPUT"
+      - name: Fetch the candidate or its original CI artifacts
+        id: assets
+        env:
+          SHA: ${{ steps.build.outputs.sha }}
+          RUN: ${{ steps.build.outputs.run }}
+        run: |
+          mkdir assets
+          if [[ "$TAG" == *-rc.* ]]; then
+            gh run download "$RUN" --name "server-packages-$SHA" --dir assets
+            printf 'candidate=%s\n' "$TAG" >> "$GITHUB_OUTPUT"
+          else
+            candidate=''
+            while IFS= read -r rc; do
+              [[ "$rc" =~ ^server-v0[.]1[.]0-rc[.][1-9][0-9]*$ ]] || continue
+              [[ "$(git rev-parse "refs/tags/$rc^{commit}" 2>/dev/null)" == "$SHA" ]] || continue
+              candidate=$rc
+              break
+            done < <(gh release list --limit 100 --json tagName,isPrerelease --jq '.[] | select(.isPrerelease) | .tagName')
+            test -n "$candidate"
+            gh release download "$candidate" --pattern 'metacubexd-server-linux-*.tar.gz' --pattern SHA256SUMS --pattern build-manifest.json --dir assets
+            printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
+          fi
+          cd assets
+          test "$(wc -l < SHA256SUMS)" -eq 3
+          sha256sum --strict --check SHA256SUMS
+          for file in metacubexd-server-linux-{amd64,arm64}.tar.gz build-manifest.json; do
+            grep -Eq "^[0-9a-f]{64}  $file$" SHA256SUMS
+          done
+          jq -e --arg sha "$SHA" '.sha == $sha' build-manifest.json
+          if [[ "$TAG" == *-rc.* ]]; then jq -e --arg run "$RUN" '.run == $run' build-manifest.json; fi
+      - name: Attach verified build
+        env:
+          CANDIDATE: ${{ steps.assets.outputs.candidate }}
+          SHA: ${{ steps.build.outputs.sha }}
+        run: |
+          flags=()
+          if [[ "$TAG" == *-rc.* ]]; then flags+=(--prerelease); fi
+          gh release create "$TAG" --verify-tag "${flags[@]}" --title "MetaCubeXD $TAG" \
+            --notes "Source $SHA. Artifacts from $CANDIDATE. Verify using SHA256SUMS." \
+            assets/metacubexd-server-linux-{amd64,arm64}.tar.gz assets/SHA256SUMS assets/build-manifest.json

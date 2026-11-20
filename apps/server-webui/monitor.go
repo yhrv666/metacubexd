@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -18,7 +20,6 @@ type kernel struct {
 	origin     *url.URL
 	secret     string
 	client     *http.Client
-	redact     func([]byte) []byte
 	secretJSON []byte
 }
 
@@ -66,18 +67,39 @@ func (k *kernel) call(ctx context.Context, method, path string, body io.Reader) 
 }
 
 var credentialText = regexp.MustCompile("(?i)([a-z][a-z0-9+.-]*://[^\\s\"<>]+|(?:bearer|authorization|password|passwd|secret|token)\\s*[:= ]\\s*[^\\s\",;]+)")
+var inboundUser = regexp.MustCompile("\"inboundUser\"\\s*:\\s*\"(?:[^\"\\\\]|\\\\.)+\"")
+var connectionLog = regexp.MustCompile("^\\[(TCP|UDP)\\] [^[:space:]]+ --> [^[:space:]]+ (match [^[:cntrl:]]+ using |using )[^[:cntrl:]]+$")
 
 func (k *kernel) safeJSON(data []byte) []byte {
 	if len(k.secretJSON) != 0 && bytes.Contains(data, k.secretJSON) {
 		data = bytes.ReplaceAll(data, k.secretJSON, []byte("[redacted]"))
 	}
-	if k.redact != nil {
-		data = k.redact(data)
-	}
 	if !json.Valid(data) {
 		return nil
 	}
 	return data
+}
+
+func safeLog(data []byte) []byte {
+	var log struct {
+		Type    string `json:"type"`
+		Payload string `json:"payload"`
+	}
+	if json.Unmarshal(data, &log) != nil || !slices.Contains([]string{"debug", "info", "warning", "error"}, log.Type) {
+		return nil
+	}
+	switch {
+	case len(log.Payload) < 2048 && connectionLog.MatchString(log.Payload):
+		log.Payload = credentialText.ReplaceAllString(log.Payload, "[redacted]")
+	case strings.Contains(log.Payload, "Initial configuration complete"):
+		log.Payload = "Initial configuration complete"
+	case strings.Contains(log.Payload, "Start initial configuration"):
+		log.Payload = "Start initial configuration"
+	default:
+		log.Payload = "Mihomo " + log.Type + " event (details hidden)"
+	}
+	safe, _ := json.Marshal(log)
+	return safe
 }
 
 func (p *panel) monitor(w http.ResponseWriter, r *http.Request, session context.Context, route string) {
@@ -178,8 +200,13 @@ func (p *panel) stream(w http.ResponseWriter, r *http.Request, session context.C
 			return
 		}
 		data := frame.Bytes()
-		if route == "logs" {
-			data = credentialText.ReplaceAll(data, []byte("[redacted]"))
+		switch route {
+		case "logs":
+			data = safeLog(data)
+		case "connections":
+			if bytes.Contains(data, []byte("\"inboundUser\"")) {
+				data = inboundUser.ReplaceAll(data, []byte("\"inboundUser\":\"\""))
+			}
 		}
 		data = p.kernel.safeJSON(data)
 		if data == nil {

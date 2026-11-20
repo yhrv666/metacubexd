@@ -85,7 +85,7 @@ func TestPanelSessionAndAllowlist(t *testing.T) {
 	}
 	defer ws.Close()
 	_, message, err := ws.ReadMessage()
-	if err != nil || strings.Contains(string(message), "example") || !strings.Contains(string(message), "connected") {
+	if err != nil || strings.Contains(string(message), "example") || !strings.Contains(string(message), "details hidden") {
 		t.Fatalf("log forwarding: %s, %v", message, err)
 	}
 	expect(attempt("DELETE", "/api/session", app.URL, "", cookie), 204)

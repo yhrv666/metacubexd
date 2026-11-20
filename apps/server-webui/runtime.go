@@ -218,23 +218,36 @@ func (f *fixedInstance) testRoute(ctx context.Context, probe routeProbe, configu
 	}
 	addr := conn.LocalAddr().(*net.TCPAddr).AddrPort()
 	expected := expectedPolicy(probe, addr.Addr().Unmap(), configured, observed)
-	var connections struct {
-		Connections []struct {
-			Chains   []string
-			Metadata struct {
-				SourcePort string
-				Host       string
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		var snapshot struct {
+			Connections []struct {
+				Chains   []string
+				Metadata struct {
+					SourcePort string
+					Host       string
+				}
 			}
 		}
-	}
-	host, _, _ := net.SplitHostPort(probe.Target)
-	if !f.get(ctx, "connections", &connections) {
-		return errors.New(mismatch)
-	}
-	for _, conn := range connections.Connections {
-		if conn.Metadata.SourcePort == strconv.Itoa(int(addr.Port())) && strings.EqualFold(conn.Metadata.Host, host) && slices.Contains(conn.Chains, expected) {
-			return nil
+		if f.get(ctx, "connections", &snapshot) {
+			for _, active := range snapshot.Connections {
+				if active.Metadata.SourcePort == strconv.Itoa(int(addr.Port())) {
+					if slices.Contains(active.Chains, expected) {
+						return nil
+					}
+					return errors.New(mismatch)
+				}
+			}
+		}
+		select {
+		case <-deadline.C:
+			return errors.New("Test connection was absent from the runtime snapshot")
+		case <-ctx.Done():
+			return errors.New(mismatch)
+		case <-tick.C:
 		}
 	}
-	return errors.New(mismatch)
 }

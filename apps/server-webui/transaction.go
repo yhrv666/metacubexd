@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -268,7 +269,7 @@ func (m *manager) apply(ctx context.Context, version, action string, build func(
 		operation, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 		if err := m.activate(operation, candidate.Config); err != nil {
-			return m.restore(state, prior)
+			return fmt.Errorf("%w. %v", m.restore(state, prior), err)
 		}
 		if err := m.commit(state, candidate, action); err != nil {
 			return m.restore(state, prior)
