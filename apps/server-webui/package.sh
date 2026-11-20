@@ -11,9 +11,10 @@ SOURCE_DATE_EPOCH=$(git -C "$root" log -1 --format=%ct)
 sha=$(git -C "$root" rev-parse HEAD)
 
 cd "$root/apps/server-webui"
-test -s web/index.html
-test ! -e web/sw.js
-test ! -e web/manifest.webmanifest
+if [[ ! -s web/index.html || -e web/sw.js || -e web/manifest.webmanifest ]]; then
+  echo 'Expected an embedded server UI build with PWA disabled' >&2
+  exit 1
+fi
 go mod verify
 for arch in amd64 arm64; do
   CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -mod=readonly -trimpath -buildvcs=false -o "$stage/metacubexd-server" .

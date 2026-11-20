@@ -6,7 +6,12 @@ import { IconRefresh, IconX } from '@tabler/icons-vue'
 // service worker is waiting. We surface a reload prompt rather than
 // auto-activating the SW, which keeps iOS Safari from looping (#1740).
 const { t } = useI18n()
-const { $pwa } = useNuxtApp()
+const { $pwa } = useNuxtApp() as {
+  $pwa?: {
+    needRefresh: boolean
+    updateServiceWorker: (reloadPage?: boolean) => Promise<void>
+  }
+}
 
 function reload() {
   $pwa?.updateServiceWorker(true)
@@ -28,7 +33,7 @@ function dismiss() {
     >
       <div class="alert border-none bg-base-200 shadow-lg">
         <span class="text-sm">{{ t('pwaUpdateAvailable') }}</span>
-        <button class="btn gap-1 btn-sm btn-primary" @click="reload">
+        <button class="btn gap-1 btn-primary btn-sm" @click="reload">
           <IconRefresh class="size-4" />
           {{ t('pwaUpdateReload') }}
         </button>

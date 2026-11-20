@@ -64,7 +64,7 @@ export default defineNuxtConfig({
     '@pinia/nuxt',
     '@nuxtjs/i18n',
     '@nuxt/fonts',
-    '@vite-pwa/nuxt',
+    ...(goServer ? [] : ['@vite-pwa/nuxt']),
   ],
 
   // PWA configuration
