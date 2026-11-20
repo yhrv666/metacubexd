@@ -212,15 +212,36 @@ try {
       0,
     )
     await initial.getByRole('link', { name: '托管配置' }).click()
-    await initial.getByRole('button', { name: '添加链路' }).click()
-    await initial.getByLabel('链路 ID').fill('home')
-    await initial.getByLabel('固定中转节点').fill('transit')
     await initial
-      .getByLabel('代理字符串', { exact: true })
+      .getByLabel('HTTPS 订阅链接')
+      .fill('https://subscription.example/?value=synthetic-private')
+    await initial.getByRole('button', { name: '导入订阅' }).click()
+    await initial.getByText('1 个节点', { exact: false }).waitFor()
+    await initial.getByRole('button', { name: '编辑节点' }).click()
+    await initial
+      .getByLabel('SOCKS5', { exact: true })
       .fill('socks5://fixture-user:fixture-password@residential.example:1080')
+    await initial.getByRole('button', { name: '添加节点' }).click()
+    await initial.getByText('SOCKS5-1', { exact: true }).waitFor()
+    await initial.getByRole('button', { name: '链式代理', exact: true }).click()
+    await initial.getByRole('button', { name: '添加链路' }).click()
+    await initial.getByLabel('链路名称').fill('home')
+    await initial.getByRole('button', { name: /^relay / }).click()
+    await initial.getByRole('button', { name: /^transit / }).click()
+    await initial.getByRole('button', { name: /^SOCKS5-1 / }).click()
+    await initial.getByRole('button', { name: '上移第 2 跳' }).click()
     await initial.getByRole('button', { name: '添加规则' }).click()
     await initial.getByLabel('目标链路').selectOption('home')
     await initial.getByLabel('OpenAI').check()
+    await initial.getByRole('button', { name: '脱敏预览' }).click()
+    await initial
+      .getByText('transit → relay → SOCKS5-1', { exact: false })
+      .waitFor()
+    await initial.getByRole('button', { name: '下移第 1 跳' }).click()
+    await initial
+      .getByRole('button', { name: '发布预览' })
+      .waitFor({ state: 'hidden' })
+    await initial.getByRole('button', { name: '上移第 2 跳' }).click()
     await initial.getByRole('button', { name: '脱敏预览' }).click()
     await initial.getByRole('button', { name: '发布预览' }).click()
     await initial.getByText('发布完成，运行态已验证。').waitFor()
@@ -236,25 +257,29 @@ try {
         !saved.includes('fixture-password') &&
         !saved.includes('residential.example'),
     )
-    await initial.getByLabel('订阅 ID').fill('fixture')
     await initial
-      .getByLabel('HTTPS 订阅地址')
-      .fill('https://subscription.example/?value=synthetic-private')
-    await initial.getByRole('button', { name: '新增或替换凭据' }).click()
-    const awaitingRefresh = initial.getByText('等待首次刷新', { exact: true })
-    await awaitingRefresh.waitFor()
+      .getByRole('button', { name: '订阅与节点', exact: true })
+      .click()
     await initial.getByRole('button', { name: '刷新', exact: true }).click()
-    await awaitingRefresh.waitFor({ state: 'hidden' })
+    await initial.getByText('订阅已刷新。', { exact: true }).waitFor()
+    await initial.getByText('SOCKS5-1', { exact: true }).waitFor()
     const revision = await context.request.get(url + '/api/managed/state')
     assert.ok(
       revision.ok(),
       'the refreshed subscription revision is unavailable',
     )
     const refreshed = await revision.text()
-    assert.ok(JSON.parse(refreshed).subscriptions?.[0]?.refreshed)
+    const current = JSON.parse(refreshed)
+    assert.ok(current.subscriptions[0].refreshed)
+    assert.deepEqual(current.chains[0].hops, [
+      'transit',
+      'MCXD-SUB-sub-1-relay',
+      'MCXD-LOCAL-sub-1-SOCKS5-1',
+    ])
     assert.ok(
       refreshed.includes('openai') && !refreshed.includes('synthetic-private'),
     )
+    await initial.getByRole('button', { name: '版本记录', exact: true }).click()
     await initial.getByLabel('回滚版本').selectOption({ index: 1 })
     await initial.getByRole('button', { name: '回滚并验证' }).click()
     await initial.getByText('回滚完成，运行态已验证。').waitFor()
