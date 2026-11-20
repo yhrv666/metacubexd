@@ -23,21 +23,22 @@ type session struct {
 }
 
 type panel struct {
-	password   [32]byte
-	kernel     *kernel
-	static     http.Handler
-	baseConfig string
-	manager    *manager
-	drafts     map[string]managedDraft
-	mu         sync.Mutex
-	sessions   map[string]session
-	failures   int
-	retryAt    time.Time
-	sockets    chan struct{}
+	password          [32]byte
+	kernel            *kernel
+	static            http.Handler
+	baseConfig        string
+	manager           *manager
+	drafts            map[string]managedDraft
+	fetchSubscription func(context.Context, string) ([]byte, error)
+	mu                sync.Mutex
+	sessions          map[string]session
+	failures          int
+	retryAt           time.Time
+	sockets           chan struct{}
 }
 
 func newPanel(password [32]byte, kernel *kernel, static http.Handler) *panel {
-	return &panel{password: password, kernel: kernel, static: static, sessions: make(map[string]session), drafts: make(map[string]managedDraft), sockets: make(chan struct{}, 32)}
+	return &panel{password: password, kernel: kernel, static: static, sessions: make(map[string]session), drafts: make(map[string]managedDraft), sockets: make(chan struct{}, 32), fetchSubscription: downloadSubscription}
 }
 
 func respond(w http.ResponseWriter, status int, result any) {

@@ -28,11 +28,12 @@ var (
 )
 
 type revision struct {
-	ID      string
-	Created time.Time
-	Base    []byte
-	Config  []byte
-	Managed managedConfig
+	ID            string
+	Created       time.Time
+	Base          []byte
+	Config        []byte
+	Managed       managedConfig
+	Subscriptions []subscription
 }
 
 type stateIndex struct {
@@ -198,7 +199,7 @@ func (m *manager) readRevision(id string) (revision, error) {
 	if _, err := hex.DecodeString(id); err != nil || len(id) != 32 {
 		return r, errState
 	}
-	if err := readPrivateJSON(m.revisionPath(id), 32<<20, &r); err != nil || r.ID != id || len(r.Config) > configLimit || len(r.Base) > configLimit {
+	if err := readPrivateJSON(m.revisionPath(id), 48<<20, &r); err != nil || r.ID != id || len(r.Config) > configLimit || len(r.Base) > configLimit {
 		return r, errState
 	}
 	return r, nil
@@ -244,6 +245,9 @@ func (m *manager) apply(ctx context.Context, version, action string, build func(
 		if len(candidate.Config) > configLimit || len(candidate.Base) > configLimit {
 			return errors.New("Candidate configuration is too large")
 		}
+		if action == "subscription-save" && bytes.Equal(candidate.Config, prior.Config) {
+			return m.commit(state, candidate, action)
+		}
 		if err := m.instance.Validate(ctx, candidate.Config); err != nil {
 			m.audit(action, "validation-failed")
 			return err
@@ -266,17 +270,30 @@ func (m *manager) apply(ctx context.Context, version, action string, build func(
 		if err := m.activate(operation, candidate.Config); err != nil {
 			return m.restore(state, prior)
 		}
-		committed := stateIndex{History: append([]string{candidate.ID}, state.History...)}
-		if len(committed.History) > 10 {
-			committed.History = committed.History[:10]
-		}
-		if err := m.saveIndex(committed); err != nil {
+		if err := m.commit(state, candidate, action); err != nil {
 			return m.restore(state, prior)
 		}
-		m.prune(committed.History)
-		m.audit(action, "verified")
 		return nil
 	})
+}
+
+func (m *manager) commit(state stateIndex, candidate revision, action string) error {
+	if candidate.ID == "" {
+		candidate.ID, candidate.Created = revisionID(), time.Now().UTC()
+		if err := m.saveRevision(candidate); err != nil {
+			return err
+		}
+	}
+	committed := stateIndex{History: append([]string{candidate.ID}, state.History...)}
+	if len(committed.History) > 10 {
+		committed.History = committed.History[:10]
+	}
+	if err := m.saveIndex(committed); err != nil {
+		return err
+	}
+	m.prune(committed.History)
+	m.audit(action, "verified")
+	return nil
 }
 
 func (m *manager) activate(ctx context.Context, expected []byte) error {
@@ -340,13 +357,18 @@ type auditEvent struct {
 
 func (m *manager) audit(action, result string) {
 	path := filepath.Join(m.dir, "audit.json")
-	var events []auditEvent
-	_ = readPrivateJSON(path, 4<<20, &events)
+	events := m.recentAudit()
 	now := time.Now().UTC()
-	events = slices.DeleteFunc(events, func(e auditEvent) bool { return e.Time.Before(now.AddDate(0, 0, -30)) })
 	events = append(events, auditEvent{now, action, result})
 	if len(events) > 10000 {
 		events = events[len(events)-10000:]
 	}
 	_ = writePrivateJSON(path, events)
+}
+
+func (m *manager) recentAudit() []auditEvent {
+	var events []auditEvent
+	_ = readPrivateJSON(filepath.Join(m.dir, "audit.json"), 4<<20, &events)
+	cutoff := time.Now().UTC().AddDate(0, 0, -30)
+	return slices.DeleteFunc(events, func(e auditEvent) bool { return e.Time.Before(cutoff) })
 }

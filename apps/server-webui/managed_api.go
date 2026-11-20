@@ -47,6 +47,8 @@ func (p *panel) manage(w http.ResponseWriter, r *http.Request, key, route string
 		p.previewManaged(w, r, key)
 	case r.Method == http.MethodPost && (route == "publish" || route == "rollback"):
 		p.applyManaged(w, r, key, route)
+	case r.Method == http.MethodPost && (route == "subscription-save" || route == "subscription-refresh" || route == "subscription-remove"):
+		p.updateSubscription(w, r, route)
 	default:
 		problem(w, 404, "Capability unavailable")
 	}
@@ -77,7 +79,11 @@ func (p *panel) managedState(w http.ResponseWriter) {
 		} else if !m.diskMatches(r.Config) {
 			diagnostic = errDrift.Error()
 		}
-		respond(w, 200, map[string]any{"writable": diagnostic == "", "canPreview": true, "version": r.ID, "chains": r.Managed.preview(), "rules": r.Managed.Rules, "history": history, "diagnostic": diagnostic})
+		audit := m.recentAudit()
+		if len(audit) > 100 {
+			audit = audit[len(audit)-100:]
+		}
+		respond(w, 200, map[string]any{"writable": diagnostic == "", "canPreview": true, "version": r.ID, "chains": r.Managed.preview(), "rules": r.Managed.Rules, "history": history, "diagnostic": diagnostic, "subscriptions": summarizeSubscriptions(r.Subscriptions), "audit": audit})
 		return nil
 	})
 	if err != nil {
@@ -115,8 +121,9 @@ func (p *panel) previewManaged(w http.ResponseWriter, r *http.Request, key strin
 			if prior.ID != request.Version {
 				return errConflict
 			}
-			base, previous = prior.Base, prior.Managed
-			return nil
+			base, err = subscriptionLayer(prior.Base, prior.Subscriptions)
+			previous = prior.Managed
+			return err
 		})
 		if err != nil {
 			managedProblem(w, err)
@@ -167,8 +174,7 @@ func (p *panel) applyManaged(w http.ResponseWriter, r *http.Request, key, action
 			}
 			return p.manager.readRevision(request.ID)
 		}
-		candidate, normalized, err := makeManaged(prior.Base, draft.managed, prior.Managed)
-		return revision{Base: prior.Base, Config: candidate, Managed: normalized}, err
+		return composeRevision(prior, draft.managed)
 	})
 	if err != nil {
 		managedProblem(w, err)
@@ -180,6 +186,66 @@ func (p *panel) applyManaged(w http.ResponseWriter, r *http.Request, key, action
 			delete(p.drafts, key)
 		}
 		p.mu.Unlock()
+	}
+	w.WriteHeader(204)
+}
+
+func (p *panel) updateSubscription(w http.ResponseWriter, r *http.Request, action string) {
+	if p.manager == nil {
+		problem(w, 503, "Managed writes are disabled")
+		return
+	}
+	var request struct{ Version, ID, URL string }
+	if !readJSON(w, r, 16<<10, &request) {
+		return
+	}
+	if !identifier.MatchString(request.ID) {
+		problem(w, 422, "Invalid subscription ID")
+		return
+	}
+	err := p.manager.apply(r.Context(), request.Version, action, func(_ stateIndex, prior revision) (revision, error) {
+		index := slices.IndexFunc(prior.Subscriptions, func(s subscription) bool { return s.ID == request.ID })
+		if action != "subscription-save" && index < 0 {
+			return revision{}, errors.New("Subscription does not exist")
+		}
+		switch action {
+		case "subscription-save":
+			if _, err := subscriptionURL(request.URL); err != nil {
+				return revision{}, err
+			}
+			if index < 0 {
+				if len(prior.Subscriptions) >= 8 {
+					return revision{}, errors.New("Subscription limit exceeded")
+				}
+				prior.Subscriptions = append(prior.Subscriptions, subscription{ID: request.ID, URL: request.URL})
+			} else {
+				prior.Subscriptions[index].URL = request.URL
+			}
+		case "subscription-refresh":
+			data, err := p.fetchSubscription(r.Context(), prior.Subscriptions[index].URL)
+			if err != nil {
+				return revision{}, err
+			}
+			if _, err := subscriptionNodes(data); err != nil {
+				return revision{}, err
+			}
+			prior.Subscriptions[index].Cached = data
+			prior.Subscriptions[index].Refreshed = time.Now().UTC()
+		case "subscription-remove":
+			prior.Subscriptions = slices.Delete(prior.Subscriptions, index, index+1)
+		}
+		n := 0
+		for _, item := range prior.Subscriptions {
+			n += len(item.Cached)
+		}
+		if n > 8<<20 {
+			return revision{}, errors.New("Combined subscription cache is too large")
+		}
+		return composeRevision(prior, prior.Managed)
+	})
+	if err != nil {
+		managedProblem(w, err)
+		return
 	}
 	w.WriteHeader(204)
 }

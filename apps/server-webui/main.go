@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"embed"
+	"encoding/json"
 	"errors"
 	"flag"
 	"io/fs"
@@ -54,7 +55,30 @@ func main() {
 	kernelBinary := flag.String("kernel-binary", "", "absolute path to the fixed host Mihomo binary")
 	dockerBinary := flag.String("docker-binary", "", "absolute path to the Docker CLI for the validator")
 	dockerImage := flag.String("docker-image", "", "immutable image ID of the target instance")
+	migration := flag.Bool("migration-check", false, "emit a sanitized read-only report about the startup configuration")
+	legacyScript := flag.String("legacy-script", "", "optional locally configured script to scan during migration preflight")
 	flag.Parse()
+	if *migration {
+		config, err := readConfig(*baseConfig)
+		if err != nil {
+			log.Fatal(err)
+		}
+		var script []byte
+		if *legacyScript != "" {
+			script, err = readConfig(*legacyScript)
+			if err != nil {
+				log.Fatal("could not read legacy script")
+			}
+		}
+		report, err := migrationCheck(config, script)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if json.NewEncoder(os.Stdout).Encode(report) != nil {
+			log.Fatal("could not write migration report")
+		}
+		return
+	}
 	if *validatorService {
 		validate, err := fixedValidator(*kernelHome, *kernelBinary, *dockerBinary, *dockerImage)
 		if err != nil || !filepath.IsAbs(*validatorSocket) {

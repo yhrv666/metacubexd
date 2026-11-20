@@ -44,10 +44,43 @@ interface ManagedState {
     presets?: string[]
   }[]
   history?: { id: string; created: string }[]
+  subscriptions?: { id: string; refreshed?: string }[]
+  audit?: { Time: string; Action: string; Result: string }[]
 }
 const state = ref<ManagedState>()
 const draft = ref('')
 const rollbackTarget = ref('')
+const subscriptionID = ref('')
+const subscriptionURL = ref('')
+
+async function updateSubscription(
+  action: 'save' | 'refresh' | 'remove',
+  id: string,
+) {
+  if (!state.value?.writable || !id || pending.value) return
+  pending.value = true
+  draft.value = ''
+  try {
+    const response = await fetch(`/api/managed/subscription-${  action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        version: state.value.version,
+        id,
+        ...(action === 'save' && { url: subscriptionURL.value }),
+      }),
+    })
+    notice.value = response.ok
+      ? '订阅操作完成。'
+      : (await response.json()).error
+    await loadState()
+  } catch {
+    notice.value = '订阅请求中断。请重新读取状态确认结果。'
+  } finally {
+    subscriptionURL.value = ''
+    pending.value = false
+  }
+}
 
 async function loadState() {
   try {
@@ -170,7 +203,7 @@ async function apply(action: 'publish' | 'rollback', id: string) {
   pending.value = true
   notice.value = ''
   try {
-    const response = await fetch(`/api/managed/${  action}`, {
+    const response = await fetch(`/api/managed/${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ version: state.value.version, id }),
@@ -392,6 +425,73 @@ async function apply(action: 'publish' | 'rollback', id: string) {
         回滚并验证
       </button>
     </section>
+    <section v-if="state?.version" class="grid gap-3">
+      <h2 class="text-lg font-semibold">手动刷新订阅</h2>
+      <ul class="grid gap-2">
+        <li
+          v-for="item in state.subscriptions"
+          :key="item.id"
+          class="flex flex-wrap items-center gap-2 rounded-box border border-base-300 p-2"
+        >
+          <strong>{{ item.id }}</strong>
+          <span class="mr-auto text-sm">{{
+            item.refreshed
+              ? new Date(item.refreshed).toLocaleString()
+              : '等待首次刷新'
+          }}</span>
+          <button
+            type="button"
+            class="btn btn-sm"
+            :disabled="pending || !state.writable"
+            @click="updateSubscription('refresh', item.id)"
+          >
+            刷新
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            :disabled="pending || !state.writable"
+            @click="updateSubscription('remove', item.id)"
+          >
+            删除
+          </button>
+        </li>
+      </ul>
+      <div class="grid gap-2 sm:grid-cols-2">
+        <label class="grid gap-1"
+          >订阅 ID<input v-model="subscriptionID" class="input w-full"
+        /></label>
+        <label class="grid gap-1"
+          >HTTPS 订阅地址<input
+            v-model="subscriptionURL"
+            type="password"
+            class="input w-full"
+            autocomplete="off"
+        /></label>
+      </div>
+      <button
+        type="button"
+        class="btn justify-self-start"
+        :disabled="
+          pending || !state.writable || !subscriptionID || !subscriptionURL
+        "
+        @click="updateSubscription('save', subscriptionID)"
+      >
+        新增或替换凭据
+      </button>
+    </section>
+    <details
+      v-if="state?.audit?.length"
+      class="rounded-box border border-base-300 p-3"
+    >
+      <summary>最近操作记录</summary>
+      <ul class="grid gap-2 pt-2 text-sm">
+        <li v-for="event in [...state.audit].reverse()" :key="event.Time">
+          {{ new Date(event.Time).toLocaleString() }} · {{ event.Action }} ·
+          {{ event.Result }}
+        </li>
+      </ul>
+    </details>
     <p v-if="notice" role="status">{{ notice }}</p>
   </form>
 </template>

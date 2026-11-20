@@ -223,6 +223,9 @@ func makeManaged(base []byte, incoming, previous managedConfig) ([]byte, managed
 		if transit.Server == "" || transit.Port == 0 || transit.Dialer != "" || slices.Contains([]string{"direct", "reject", "pass", "compatible", "dns"}, strings.ToLower(transit.Type)) {
 			return bad(fmt.Errorf("Chain %d needs a fixed transit proxy without a dialer", i+1))
 		}
+		if isLocalListener(root, transit.Server, transit.Port) {
+			return bad(fmt.Errorf("Transit in chain %d points to a local Mihomo listener", i+1))
+		}
 		proxy := chain.Proxy
 		if chain.Import != "" {
 			if proxy != nil {
@@ -288,6 +291,49 @@ func makeManaged(base []byte, incoming, previous managedConfig) ([]byte, managed
 		return bad(errors.New("Cannot encode candidate"))
 	}
 	return result, incoming, nil
+}
+
+func isLocalListener(root *yaml.Node, host string, port uint16) bool {
+	ip, err := netip.ParseAddr(host)
+	local := strings.EqualFold(host, "localhost")
+	if err == nil {
+		ip = ip.Unmap()
+		local = ip.IsUnspecified() || ip.IsLoopback()
+		if addresses, err := net.InterfaceAddrs(); !local && err == nil {
+			for _, address := range addresses {
+				if prefix, err := netip.ParsePrefix(address.String()); err == nil && prefix.Addr().Unmap() == ip {
+					local = true
+					break
+				}
+			}
+		}
+	}
+	if !local {
+		return false
+	}
+	portString := strconv.Itoa(int(port))
+	for _, key := range []string{"port", "socks-port", "mixed-port", "redir-port", "tproxy-port"} {
+		if node := yamlField(root, key); node != nil && node.Value == portString {
+			return true
+		}
+	}
+	for _, key := range []string{"external-controller", "external-controller-tls"} {
+		if node := yamlField(root, key); node != nil {
+			if _, value, err := net.SplitHostPort(node.Value); err == nil && value == portString {
+				return true
+			}
+		}
+	}
+	if listeners := yamlField(root, "listeners"); listeners != nil && listeners.Kind == yaml.SequenceNode {
+		for _, listener := range listeners.Content {
+			if listener.Kind == yaml.MappingNode {
+				if node := yamlField(listener, "port"); node != nil && node.Value == portString {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 type ruleScope struct {
