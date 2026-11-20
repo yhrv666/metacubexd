@@ -35,6 +35,8 @@ journalctl -u metacubexd-image-update.service -n 50 --no-pager
 
 更新器从镜像提取并校验可执行文件，切换版本链接后通过现有 systemd 服务运行。它沿用面板密码、控制器连接和当前读写设置。登录、控制器连通性或管理状态检查失败时，自动恢复上一版。需要暂停后续检查时，运行 `systemctl disable --now metacubexd-image-update.timer`。稳定 tag 仍按下方的生产观察结果决定。
 
+下载和安装最多运行 30 分钟。北京在 `metacubexd-image-update.service` 的 systemd drop-in 中设置 `HTTPS_PROXY`，让 GitHub API 和 Release 资产下载使用现有的本机 HTTP 代理。
+
 ## 隔离演练
 
 用已确认的同版本内核与镜像，创建独立的配置目录和测试端口。使用合成配置验证发布、运行态、回滚、内核与面板重启持久性。生产 Mihomo 保持运行。用 `-migration-check` 逐个检查旧脚本，并核实定时任务和其他写入入口。原样备份生产启动文件、挂载目录中必要的资源、托管状态和脚本启用状态。配置、状态、报告原件和完整日志留在服务器受限目录。
