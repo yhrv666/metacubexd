@@ -44,6 +44,7 @@ func main() {
 	controller := flag.String("controller", "http://127.0.0.1:9090", "fixed Mihomo controller URL")
 	adminFile := flag.String("admin-file", "", "private file containing the administrator password")
 	controllerFile := flag.String("controller-secret-file", "", "private file containing the controller secret")
+	baseConfig := flag.String("base-config", "", "fixed Mihomo startup config for managed previews")
 	flag.Parse()
 
 	if host, _, err := net.SplitHostPort(*listen); err != nil || !loopback(host) {
@@ -69,6 +70,7 @@ func main() {
 		log.Fatal("build the server UI before building the binary")
 	}
 	app := newPanel(sha256.Sum256([]byte(password)), newKernel(origin, secret), http.FileServerFS(web))
+	app.baseConfig = *baseConfig
 	server := &http.Server{Addr: *listen, Handler: app, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 16 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

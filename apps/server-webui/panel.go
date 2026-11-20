@@ -23,14 +23,15 @@ type session struct {
 }
 
 type panel struct {
-	password [32]byte
-	kernel   *kernel
-	static   http.Handler
-	mu       sync.Mutex
-	sessions map[string]session
-	failures int
-	retryAt  time.Time
-	sockets  chan struct{}
+	password   [32]byte
+	kernel     *kernel
+	static     http.Handler
+	baseConfig string
+	mu         sync.Mutex
+	sessions   map[string]session
+	failures   int
+	retryAt    time.Time
+	sockets    chan struct{}
 }
 
 func newPanel(password [32]byte, kernel *kernel, static http.Handler) *panel {
@@ -124,6 +125,10 @@ func (p *panel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if route, ok := strings.CutPrefix(r.URL.Path, "/api/monitor/"); ok && r.Method == http.MethodGet {
 		p.monitor(w, r, session.ctx, route)
+		return
+	}
+	if r.URL.Path == "/api/managed/preview" && r.Method == http.MethodPost {
+		p.previewManaged(w, r)
 		return
 	}
 	problem(w, http.StatusNotFound, "Capability unavailable")

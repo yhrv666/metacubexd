@@ -120,6 +120,12 @@ onUnmounted(() => clearInterval(timer))
             >{{ t(link.label) }}</NuxtLink
           >
         </nav>
+        <NuxtLink
+          to="/managed"
+          class="btn btn-ghost btn-sm"
+          active-class="btn-active"
+          >托管配置</NuxtLink
+        >
         <span v-if="version" class="ml-auto text-sm">Mihomo {{ version }}</span>
         <button class="btn btn-ghost btn-sm" @click="signOut">退出</button>
       </header>
