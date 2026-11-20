@@ -1,0 +1,14 @@
+[Unit]
+Description=Check for and apply a verified MetaCubeXD server image
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+StateDirectory=metacubexd-image-update
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/usr/bin/python3 /usr/local/libexec/metacubexd-image-update.py
+ExecStopPost=/usr/bin/python3 /usr/local/libexec/metacubexd-image-update.py --recover
+TimeoutStartSec=5min
+TimeoutStopSec=2min

@@ -1,0 +1,7 @@
+FROM scratch
+ARG TARGETARCH
+COPY LICENSE /LICENSE
+COPY ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --chmod=0755 metacubexd-server-${TARGETARCH} /metacubexd-server
+USER 65532:65532
+ENTRYPOINT ["/metacubexd-server"]

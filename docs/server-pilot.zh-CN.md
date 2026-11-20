@@ -9,6 +9,32 @@
 3. 建立专用 systemd 用户 `metacubexd`。将独立管理员密码写入 `/etc/metacubexd-server/admin`，归专用用户所有，权限 `0600`。如果目标配置了控制器密钥，同样在服务器本地建立 `/etc/metacubexd-server/controller`，并给面板添加 `-controller-secret-file`。以 unit 模板启动，按实际控制端口修改 `-controller` 为可从主机到达的控制器地址。面板监听 `127.0.0.1:18443`。通过 `ssh -N -L 18443:127.0.0.1:18443 beijing-daji` 访问。只读阶段省略 `-state-dir`。
 4. 检查连接、规则和日志更新。分别由 Magpie 的 OpenAI 请求、Antigravity Tool 的目标请求及一条非白名单请求建立基线。记录请求结果、命中规则、内核报告的链路。通过相同代理路径访问独立出口探针，只在服务器本地比较预期家宽出口。验收记录写“匹配”或“不匹配”。
 
+## GitHub 构建镜像与北京拉取更新
+
+在 fork 的 `main` 上确认待发 SHA 的 Server CI 成功后，推送带注释的服务器版 tag。下例中的 `<SHA>` 替换为已通过 CI 的提交，后续候选递增 `rc` 编号。
+
+```bash
+git tag -a server-v0.1.0-rc.3 <SHA> -m "Server v0.1.0 candidate 3"
+git push origin refs/tags/server-v0.1.0-rc.3
+```
+
+GitHub Actions 从该 SHA 的已验收包提取可执行文件，发布 `ghcr.io/yhrv666/metacubexd-server` 的 Linux amd64 和 arm64 镜像。Release 中的 `server-images.json` 记录镜像摘要、架构及校验值。北京每 10 分钟检查新版 Release，按摘要拉取镜像。GHCR 拉取失败时，改用同一 Release 中经过 SHA-256 校验的 Docker 镜像归档。
+
+首次部署时，在含更新器的服务器版发布包解压目录中，以 root 安装 systemd 定时器。主机需有 Python 3.10 或更新版本、Docker，以及已运行的 `metacubexd-server.service`。
+
+```bash
+units=apps/server-webui/units
+install -D -m 0755 "$units/metacubexd-image-update.py" /usr/local/libexec/metacubexd-image-update.py
+install -m 0644 "$units/metacubexd-image-update.service" "$units/metacubexd-image-update.timer" /etc/systemd/system/
+systemctl daemon-reload
+/usr/local/libexec/metacubexd-image-update.py --check
+systemctl enable --now metacubexd-image-update.timer
+systemctl list-timers metacubexd-image-update.timer
+journalctl -u metacubexd-image-update.service -n 50 --no-pager
+```
+
+更新器从镜像提取并校验可执行文件，切换版本链接后通过现有 systemd 服务运行。它沿用面板密码、控制器连接和当前读写设置。登录、控制器连通性或管理状态检查失败时，自动恢复上一版。需要暂停后续检查时，运行 `systemctl disable --now metacubexd-image-update.timer`。稳定 tag 仍按下方的生产观察结果决定。
+
 ## 隔离演练
 
 用已确认的同版本内核与镜像，创建独立的配置目录和测试端口。使用合成配置验证发布、运行态、回滚、内核与面板重启持久性。生产 Mihomo 保持运行。用 `-migration-check` 逐个检查旧脚本，并核实定时任务和其他写入入口。原样备份生产启动文件、挂载目录中必要的资源、托管状态和脚本启用状态。配置、状态、报告原件和完整日志留在服务器受限目录。

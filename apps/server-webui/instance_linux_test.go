@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -39,7 +40,19 @@ func TestIsolatedMihomoInstance(t *testing.T) {
 		return ""
 	})
 	defer residential.Close()
+	var middleDialed atomic.Bool
+	middle := startSyntheticSOCKS(t, func(host string) string {
+		if host == "192.0.2.22" {
+			middleDialed.Store(true)
+			return residential.Addr().String()
+		}
+		return ""
+	})
+	defer middle.Close()
 	relay := startSyntheticSOCKS(t, func(host string) string {
+		if host == "192.0.2.21" {
+			return middle.Addr().String()
+		}
 		if host == "192.0.2.22" {
 			return residential.Addr().String()
 		}
@@ -48,7 +61,7 @@ func TestIsolatedMihomoInstance(t *testing.T) {
 	defer relay.Close()
 	_, relayPort, _ := net.SplitHostPort(relay.Addr().String())
 	_, port, _ := net.SplitHostPort(mixed)
-	base := fmt.Sprintf("mixed-port: %s\nexternal-controller: %s\nsecret: %s\nmode: rule\nlog-level: silent\nallow-lan: false\nprofile: {store-selected: false}\nhosts: {outside.example: 127.0.0.1, api.openai.com: 127.0.0.1, cloudcode-pa.googleapis.com: 127.0.0.1}\nproxies:\n  - {name: relay, type: socks5, server: 127.0.0.1, port: %s}\nrules:\n  - IP-CIDR6,2001:db8::/32,REJECT,no-resolve\n  - MATCH,DIRECT\n", port, controller, secret, relayPort)
+	base := fmt.Sprintf("mixed-port: %s\nexternal-controller: %s\nsecret: %s\nmode: rule\nlog-level: silent\nallow-lan: false\nprofile: {store-selected: false}\nhosts: {outside.example: 127.0.0.1, api.openai.com: 127.0.0.1, cloudcode-pa.googleapis.com: 127.0.0.1}\nproxies:\n  - {name: relay, type: socks5, server: 127.0.0.1, port: %s}\n  - {name: middle, type: socks5, server: 192.0.2.21, port: 1080}\n  - {name: exit, type: socks5, server: 192.0.2.22, port: 1080}\nrules:\n  - IP-CIDR6,2001:db8::/32,REJECT,no-resolve\n  - MATCH,DIRECT\n", port, controller, secret, relayPort)
 	if err := os.WriteFile(config, []byte(base), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -119,6 +132,16 @@ func TestIsolatedMihomoInstance(t *testing.T) {
 	_, applied, err := m.current()
 	if err != nil || applied.ID == initial.ID {
 		t.Fatal("candidate not committed")
+	}
+	managed.Chains[0] = managedChain{ID: "home", Hops: []string{"relay", "middle", "exit"}}
+	if err := m.apply(ctx, applied.ID, "publish", func(_ stateIndex, r revision) (revision, error) {
+		return composeRevision(r, managed)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, applied, err = m.current()
+	if err != nil || !middleDialed.Load() {
+		t.Fatal("ordered chain did not use the middle hop")
 	}
 	// Stop only the synthetic residence. A CONNECT tunnel must not deliver an
 	// HTTP request to the sink through a DIRECT fallback.

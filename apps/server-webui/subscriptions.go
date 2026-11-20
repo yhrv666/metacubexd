@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,29 +17,96 @@ import (
 )
 
 const subscriptionPrefix = "MCXD-SUB-"
+const localNodePrefix = "MCXD-LOCAL-"
 
 type subscription struct {
 	ID        string
 	URL       string
 	Cached    []byte
 	Refreshed time.Time
+	Local     []subscriptionNode `json:",omitempty"`
+}
+
+type subscriptionNode struct {
+	Name  string
+	Proxy *residential
+}
+
+type proxyChoice struct {
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	Type  string `json:"type"`
+	Local bool   `json:"local,omitempty"`
 }
 
 type subscriptionView struct {
-	ID        string     `json:"id"`
-	Refreshed *time.Time `json:"refreshed,omitempty"`
+	ID        string        `json:"id"`
+	Refreshed *time.Time    `json:"refreshed,omitempty"`
+	Nodes     []proxyChoice `json:"nodes"`
 }
 
 func summarizeSubscriptions(list []subscription) []subscriptionView {
 	result := make([]subscriptionView, 0, len(list))
 	for _, item := range list {
-		view := subscriptionView{ID: item.ID}
+		view := subscriptionView{ID: item.ID, Nodes: make([]proxyChoice, 0)}
 		if !item.Refreshed.IsZero() {
 			view.Refreshed = &item.Refreshed
+		}
+		if proxies, err := subscriptionNodes(item.Cached); err == nil {
+			for _, node := range proxies {
+				label := yamlField(node, "name").Value
+				view.Nodes = append(view.Nodes, proxyChoice{
+					Name: subscriptionPrefix + item.ID + "-" + label, Label: label, Type: yamlField(node, "type").Value,
+				})
+			}
+		}
+		for _, node := range item.Local {
+			view.Nodes = append(view.Nodes, proxyChoice{
+				Name: item.localName(node.Name), Label: node.Name, Type: "socks5", Local: true,
+			})
 		}
 		result = append(result, view)
 	}
 	return result
+}
+
+func (s subscription) localName(name string) string {
+	return localNodePrefix + s.ID + "-" + name
+}
+
+func nextNumberedID(prefix string, occupied func(string) bool) string {
+	for i := 1; ; i++ {
+		name := prefix + strconv.Itoa(i)
+		if !occupied(name) {
+			return name
+		}
+	}
+}
+
+func changeSubscriptionNode(item *subscription, input, name string, remove bool) error {
+	if remove {
+		index := slices.IndexFunc(item.Local, func(node subscriptionNode) bool { return item.localName(node.Name) == name })
+		if index < 0 {
+			return errors.New("Local node does not exist")
+		}
+		item.Local = slices.Delete(item.Local, index, index+1)
+		return nil
+	}
+	if len(item.Local) >= 100 {
+		return errors.New("Local node limit exceeded")
+	}
+	proxy, err := parseResidential(input)
+	if err != nil || !validateResidential(proxy) || proxy.Type != "socks5" {
+		return errors.New("Supply a valid SOCKS5 proxy")
+	}
+	if slices.ContainsFunc(item.Local, func(node subscriptionNode) bool { return node.Proxy != nil && *node.Proxy == *proxy }) {
+		return errors.New("SOCKS5 node already exists in this subscription")
+	}
+	label := nextNumberedID("SOCKS5-", func(label string) bool {
+		return slices.ContainsFunc(item.Local, func(node subscriptionNode) bool { return node.Name == label })
+	})
+	item.Local = append(item.Local, subscriptionNode{Name: label, Proxy: proxy})
+	return nil
 }
 
 func subscriptionURL(raw string) (*url.URL, error) {
@@ -90,6 +158,7 @@ func downloadSubscription(ctx context.Context, raw string) ([]byte, error) {
 	if err != nil {
 		return nil, failure
 	}
+	req.Header.Set("User-Agent", "mihomo")
 	res, err := client.Do(req)
 	if err != nil {
 		return nil, failure
@@ -121,7 +190,7 @@ func subscriptionNodes(data []byte) ([]*yaml.Node, error) {
 			return nil, errors.New("Subscription contains unsupported proxy data")
 		}
 		var proxy baseProxy
-		if node.Decode(&proxy) != nil || proxy.Name == "" || len(proxy.Name) > 128 || strings.ContainsAny(proxy.Name, ",\r\n\x00") || proxy.Server == "" || proxy.Port == 0 || proxy.Type == "" || proxy.Dialer != "" || slices.Contains([]string{"direct", "reject", "pass", "compatible", "dns"}, strings.ToLower(proxy.Type)) {
+		if node.Decode(&proxy) != nil || proxy.Name == "" || len(proxy.Name) > 128 || strings.ContainsAny(proxy.Name, ",\r\n\x00") || !fixedProxy(proxy) {
 			return nil, errors.New("Subscription contains an unsupported transit node")
 		}
 	}
@@ -154,19 +223,30 @@ func subscriptionLayer(base []byte, list []subscription) ([]byte, error) {
 	}
 	var added []*yaml.Node
 	for _, item := range list {
-		if len(item.Cached) == 0 {
-			continue
+		var proxies []*yaml.Node
+		if len(item.Cached) != 0 {
+			proxies, err = subscriptionNodes(item.Cached)
+			if err != nil {
+				return nil, err
+			}
+			for _, proxy := range proxies {
+				name := yamlField(proxy, "name")
+				name.Value = subscriptionPrefix + item.ID + "-" + name.Value
+			}
 		}
-		proxies, err := subscriptionNodes(item.Cached)
-		if err != nil {
-			return nil, err
+		for _, local := range item.Local {
+			if !validateResidential(local.Proxy) || local.Proxy.Type != "socks5" ||
+				isLocalListener(root, local.Proxy.Host, local.Proxy.Port) {
+				return nil, errors.New("Invalid SOCKS5 node in subscription")
+			}
+			proxy, err := residentialNode(item.localName(local.Name), local.Proxy, "")
+			if err != nil {
+				return nil, err
+			}
+			proxies = append(proxies, proxy)
 		}
 		for _, proxy := range proxies {
 			name := yamlField(proxy, "name")
-			if name == nil {
-				return nil, errors.New("Subscription proxy is missing its name")
-			}
-			name.Value = subscriptionPrefix + item.ID + "-" + name.Value
 			if baseNames[name.Value].Name != "" {
 				return nil, errors.New("Subscription proxy name conflicts with another node")
 			}

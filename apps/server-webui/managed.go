@@ -32,9 +32,10 @@ type residential struct {
 
 type managedChain struct {
 	ID      string       `json:"id"`
-	Transit string       `json:"transit"`
+	Transit string       `json:"transit,omitempty"`
 	Proxy   *residential `json:"proxy,omitempty"`
 	Import  string       `json:"import,omitempty"`
+	Hops    []string     `json:"hops,omitempty"`
 }
 
 type managedRule struct {
@@ -50,16 +51,22 @@ type managedConfig struct {
 }
 
 type chainPreview struct {
-	ID            string `json:"id"`
-	Transit       string `json:"transit"`
-	Type          string `json:"type"`
-	Authenticated bool   `json:"authenticated"`
+	ID            string   `json:"id"`
+	Transit       string   `json:"transit,omitempty"`
+	Type          string   `json:"type,omitempty"`
+	Authenticated bool     `json:"authenticated"`
+	Hops          []string `json:"hops,omitempty"`
 }
 
 func (m managedConfig) preview() []chainPreview {
 	result := make([]chainPreview, 0, len(m.Chains))
 	for _, chain := range m.Chains {
-		result = append(result, chainPreview{chain.ID, chain.Transit, chain.Proxy.Type, chain.Proxy.Username != ""})
+		view := chainPreview{ID: chain.ID, Transit: chain.Transit, Hops: chain.Hops}
+		if chain.Proxy != nil {
+			view.Type = chain.Proxy.Type
+			view.Authenticated = chain.Proxy.Username != ""
+		}
+		result = append(result, view)
 	}
 	return result
 }
@@ -81,6 +88,11 @@ var presets = map[string][]domainSelector{
 func parseResidential(raw string) (*residential, error) {
 	invalid := errors.New("Invalid residential proxy string")
 	raw = strings.TrimSpace(raw)
+	if !strings.Contains(raw, "://") {
+		if host, port, err := net.SplitHostPort(raw); err == nil {
+			raw = "socks5://" + net.JoinHostPort(host, port)
+		}
+	}
 	if !strings.Contains(raw, "://") {
 		hostPortUser, password, ok := cutLastColon(raw)
 		hostPort, user, hasUser := cutLastColon(hostPortUser)
@@ -145,6 +157,26 @@ func validateResidential(p *residential) bool {
 	return validDomain(host) && !strings.HasSuffix(host, ".localhost") && !strings.HasSuffix(host, ".local")
 }
 
+func residentialNode(name string, proxy *residential, dialer string) (*yaml.Node, error) {
+	entry := map[string]any{"name": name, "type": proxy.Type, "server": proxy.Host, "port": proxy.Port}
+	if dialer != "" {
+		entry["dialer-proxy"] = dialer
+	}
+	if proxy.Type == "https" {
+		entry["type"] = "http"
+		entry["tls"] = true
+	}
+	if proxy.Username != "" {
+		entry["username"] = proxy.Username
+		entry["password"] = proxy.Password
+	}
+	var node yaml.Node
+	if err := node.Encode(entry); err != nil {
+		return nil, errors.New("Cannot generate proxy")
+	}
+	return &node, nil
+}
+
 func configTree(data []byte) (*yaml.Node, error) {
 	var doc yaml.Node
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
@@ -186,6 +218,84 @@ type baseProxy struct {
 	Server string
 	Port   uint16
 	Dialer string `yaml:"dialer-proxy"`
+}
+
+func fixedProxy(proxy baseProxy) bool {
+	return proxy.Server != "" && proxy.Port != 0 && proxy.Type != "" && proxy.Dialer == "" &&
+		!slices.Contains([]string{"direct", "reject", "pass", "compatible", "dns"}, strings.ToLower(proxy.Type))
+}
+
+func inlineProxies(root *yaml.Node) []*yaml.Node {
+	node := yamlField(root, "proxies")
+	if node == nil || node.Kind != yaml.SequenceNode {
+		return nil
+	}
+	return node.Content
+}
+
+func proxyChoices(base []byte) ([]proxyChoice, error) {
+	root, err := configTree(base)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]proxyChoice, 0)
+	for _, node := range inlineProxies(root) {
+		var proxy baseProxy
+		if node.Kind == yaml.MappingNode && plainYAML(node) && node.Decode(&proxy) == nil &&
+			proxy.Name != "" && fixedProxy(proxy) && !isLocalListener(root, proxy.Server, proxy.Port) {
+			result = append(result, proxyChoice{Name: proxy.Name, Label: proxy.Name, Type: proxy.Type})
+		}
+	}
+	return result, nil
+}
+
+func orderedProxies(root *yaml.Node, chain managedChain, names map[string]baseProxy) ([]*yaml.Node, error) {
+	if len(chain.Hops) < 2 || len(chain.Hops) > 8 {
+		return nil, errors.New("Select 2 to 8 nodes for the chain")
+	}
+	if chain.Transit != "" || chain.Proxy != nil || chain.Import != "" {
+		return nil, errors.New("Choose ordered nodes or a residential input")
+	}
+	inline := make(map[string]*yaml.Node)
+	for _, node := range inlineProxies(root) {
+		if node.Kind == yaml.MappingNode {
+			if name := yamlField(node, "name"); name != nil {
+				inline[name.Value] = node
+			}
+		}
+	}
+	var result []*yaml.Node
+	seen := make(map[string]bool)
+	dialer := chain.Hops[0]
+	for i, name := range chain.Hops {
+		proxy, original := names[name], inline[name]
+		if original == nil || !plainYAML(original) || !fixedProxy(proxy) || isLocalListener(root, proxy.Server, proxy.Port) {
+			return nil, fmt.Errorf("Hop %d needs an available fixed proxy", i+1)
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("Hop %d repeats a proxy", i+1)
+		}
+		seen[name] = true
+		if i == 0 {
+			continue
+		}
+		var entry map[string]any
+		if original.Decode(&entry) != nil {
+			return nil, fmt.Errorf("Cannot read proxy for hop %d", i+1)
+		}
+		derived := managedPrefix + chain.ID
+		if i < len(chain.Hops)-1 {
+			derived += "." + strconv.Itoa(i+1)
+		}
+		entry["name"], entry["dialer-proxy"] = derived, dialer
+		var node yaml.Node
+		if node.Encode(entry) != nil {
+			return nil, fmt.Errorf("Cannot generate proxy for hop %d", i+1)
+		}
+		result = append(result, &node)
+		dialer = derived
+	}
+	return result, nil
 }
 
 func baseProxies(root *yaml.Node) (map[string]baseProxy, error) {
@@ -242,6 +352,15 @@ func makeManaged(base []byte, incoming, previous managedConfig) ([]byte, managed
 		if !identifier.MatchString(chain.ID) || chains[chain.ID] {
 			return bad(fmt.Errorf("Invalid or duplicate chain ID at row %d", i+1))
 		}
+		chains[chain.ID] = true
+		if chain.Hops != nil {
+			nodes, err := orderedProxies(root, *chain, names)
+			if err != nil {
+				return bad(fmt.Errorf("Chain %d: %w", i+1, err))
+			}
+			newProxies = append(newProxies, nodes...)
+			continue
+		}
 		transit := names[chain.Transit]
 		if transit.Server == "" || transit.Port == 0 || transit.Dialer != "" || slices.Contains([]string{"direct", "reject", "pass", "compatible", "dns"}, strings.ToLower(transit.Type)) {
 			return bad(fmt.Errorf("Chain %d needs a fixed transit proxy without a dialer", i+1))
@@ -265,23 +384,13 @@ func makeManaged(base []byte, incoming, previous managedConfig) ([]byte, managed
 		if !validateResidential(proxy) || (strings.EqualFold(proxy.Host, transit.Server) && proxy.Port == transit.Port) {
 			return bad(fmt.Errorf("Invalid or recursive residential endpoint at row %d", i+1))
 		}
-		entry := map[string]any{"name": managedPrefix + chain.ID, "type": proxy.Type, "server": proxy.Host, "port": proxy.Port, "dialer-proxy": chain.Transit}
-		if proxy.Type == "https" {
-			entry["type"] = "http"
-			entry["tls"] = true
+		node, err := residentialNode(managedPrefix+chain.ID, proxy, chain.Transit)
+		if err != nil {
+			return bad(err)
 		}
-		if proxy.Username != "" {
-			entry["username"] = proxy.Username
-			entry["password"] = proxy.Password
-		}
-		var node yaml.Node
-		if err := node.Encode(entry); err != nil {
-			return bad(errors.New("Cannot generate proxy"))
-		}
-		newProxies = append(newProxies, &node)
+		newProxies = append(newProxies, node)
 		chain.Proxy = proxy
 		chain.Import = ""
-		chains[chain.ID] = true
 	}
 	managedRules, err := expandRules(incoming.Rules, chains)
 	if err != nil {

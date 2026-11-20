@@ -47,7 +47,10 @@ func (p *panel) manage(w http.ResponseWriter, r *http.Request, key, route string
 		p.previewManaged(w, r, key)
 	case r.Method == http.MethodPost && (route == "publish" || route == "rollback"):
 		p.applyManaged(w, r, key, route)
-	case r.Method == http.MethodPost && (route == "subscription-save" || route == "subscription-refresh" || route == "subscription-remove"):
+	case r.Method == http.MethodPost && slices.Contains([]string{
+		"subscription-import", "subscription-save", "subscription-refresh", "subscription-remove",
+		"subscription-node-add", "subscription-node-remove",
+	}, route):
 		p.updateSubscription(w, r, route)
 	default:
 		problem(w, 404, "Capability unavailable")
@@ -56,7 +59,18 @@ func (p *panel) manage(w http.ResponseWriter, r *http.Request, key, route string
 
 func (p *panel) managedState(w http.ResponseWriter) {
 	if p.manager == nil {
-		respond(w, 200, map[string]any{"writable": false, "canPreview": p.baseConfig != ""})
+		var nodes []proxyChoice
+		if p.baseConfig != "" {
+			base, err := readConfig(p.baseConfig)
+			if err == nil {
+				nodes, err = proxyChoices(base)
+			}
+			if err != nil {
+				managedProblem(w, err)
+				return
+			}
+		}
+		respond(w, 200, map[string]any{"writable": false, "canPreview": p.baseConfig != "", "nodes": nodes})
 		return
 	}
 	m := p.manager
@@ -83,7 +97,11 @@ func (p *panel) managedState(w http.ResponseWriter) {
 		if len(audit) > 100 {
 			audit = audit[len(audit)-100:]
 		}
-		respond(w, 200, map[string]any{"writable": diagnostic == "", "canPreview": true, "version": r.ID, "chains": r.Managed.preview(), "rules": r.Managed.Rules, "history": history, "diagnostic": diagnostic, "subscriptions": summarizeSubscriptions(r.Subscriptions), "audit": audit})
+		nodes, err := proxyChoices(r.Base)
+		if err != nil {
+			return err
+		}
+		respond(w, 200, map[string]any{"writable": diagnostic == "", "canPreview": true, "version": r.ID, "chains": r.Managed.preview(), "rules": r.Managed.Rules, "history": history, "diagnostic": diagnostic, "nodes": nodes, "subscriptions": summarizeSubscriptions(r.Subscriptions), "audit": audit})
 		return nil
 	})
 	if err != nil {
@@ -202,42 +220,54 @@ func (p *panel) updateSubscription(w http.ResponseWriter, r *http.Request, actio
 		problem(w, 503, "Managed writes are disabled")
 		return
 	}
-	var request struct{ Version, ID, URL string }
+	var request struct{ Version, ID, URL, Import, Name string }
 	if !readJSON(w, r, 16<<10, &request) {
 		return
 	}
-	if !identifier.MatchString(request.ID) {
+	if (request.ID != "" || action != "subscription-import") && !identifier.MatchString(request.ID) {
 		problem(w, 422, "Invalid subscription ID")
 		return
 	}
 	err := p.manager.apply(r.Context(), request.Version, action, func(_ stateIndex, prior revision) (revision, error) {
 		index := slices.IndexFunc(prior.Subscriptions, func(s subscription) bool { return s.ID == request.ID })
-		if action != "subscription-save" && index < 0 {
-			return revision{}, errors.New("Subscription does not exist")
-		}
-		switch action {
-		case "subscription-save":
+		if action == "subscription-import" || action == "subscription-save" {
 			if _, err := subscriptionURL(request.URL); err != nil {
 				return revision{}, err
+			}
+			if request.ID == "" {
+				index = slices.IndexFunc(prior.Subscriptions, func(s subscription) bool { return s.URL == request.URL })
+				request.ID = nextNumberedID("sub-", func(id string) bool {
+					return slices.ContainsFunc(prior.Subscriptions, func(s subscription) bool { return s.ID == id })
+				})
 			}
 			if index < 0 {
 				if len(prior.Subscriptions) >= 8 {
 					return revision{}, errors.New("Subscription limit exceeded")
 				}
-				prior.Subscriptions = append(prior.Subscriptions, subscription{ID: request.ID, URL: request.URL})
-			} else {
-				prior.Subscriptions[index].URL = request.URL
+				index = len(prior.Subscriptions)
+				prior.Subscriptions = append(prior.Subscriptions, subscription{ID: request.ID})
 			}
-		case "subscription-refresh":
-			data, err := p.fetchSubscription(r.Context(), prior.Subscriptions[index].URL)
+			prior.Subscriptions[index].URL = request.URL
+		}
+		if index < 0 {
+			return revision{}, errors.New("Subscription does not exist")
+		}
+		item := &prior.Subscriptions[index]
+		switch action {
+		case "subscription-import", "subscription-refresh":
+			data, err := p.fetchSubscription(r.Context(), item.URL)
 			if err != nil {
 				return revision{}, err
 			}
 			if _, err := subscriptionNodes(data); err != nil {
 				return revision{}, err
 			}
-			prior.Subscriptions[index].Cached = data
-			prior.Subscriptions[index].Refreshed = time.Now().UTC()
+			item.Cached = data
+			item.Refreshed = time.Now().UTC()
+		case "subscription-node-add", "subscription-node-remove":
+			if err := changeSubscriptionNode(item, request.Import, request.Name, action == "subscription-node-remove"); err != nil {
+				return revision{}, err
+			}
 		case "subscription-remove":
 			prior.Subscriptions = slices.Delete(prior.Subscriptions, index, index+1)
 		}
