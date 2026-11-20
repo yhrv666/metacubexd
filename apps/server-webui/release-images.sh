@@ -7,6 +7,8 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 cp apps/server-webui/Containerfile "$stage/Dockerfile"
 cp /etc/ssl/certs/ca-certificates.crt "$stage/"
+tar -xzOf "$assets/metacubexd-server-linux-amd64.tar.gz" LICENSE > "$stage/LICENSE"
+test -s "$stage/LICENSE"
 for arch in amd64 arm64; do
   tar -xzOf "$assets/metacubexd-server-linux-$arch.tar.gz" metacubexd-server > "$stage/metacubexd-server-$arch"
   test -s "$stage/metacubexd-server-$arch"
