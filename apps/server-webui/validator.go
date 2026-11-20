@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -100,7 +101,8 @@ func fixedValidator(home, binary, docker, image string) (validator, error) {
 			return nil
 		}
 		name := "mcxd-check-" + revisionID()
-		cmd := exec.CommandContext(ctx, docker, "run", "--rm", "--pull=never", "--name", name, "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=128", "--memory=256m", "--mount", "type=bind,source="+work+",target=/config", "--entrypoint", "/mihomo", image, "-t", "-d", "/config", "-f", "/config/mcxd-candidate.yaml")
+		owner := strconv.Itoa(os.Geteuid()) + ":" + strconv.Itoa(os.Getegid())
+		cmd := exec.CommandContext(ctx, docker, "run", "--rm", "--pull=never", "--name", name, "--network=none", "--read-only", "--user", owner, "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=128", "--memory=256m", "--log-driver=none", "--mount", "type=bind,source="+work+",target=/config", "--entrypoint", "/mihomo", image, "-t", "-d", "/config", "-f", "/config/mcxd-candidate.yaml")
 		if cmd.Run() != nil {
 			cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()

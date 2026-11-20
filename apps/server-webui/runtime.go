@@ -140,6 +140,9 @@ func (f *fixedInstance) verifyRules(ctx context.Context, rules []string) ([]live
 			return nil, err
 		}
 		matcher, _, _ := strings.Cut(compact, ",")
+		if matcher == "IP-CIDR6" {
+			matcher = "IP-CIDR"
+		}
 		normalize := func(s string) string { return strings.ToLower(strings.ReplaceAll(s, "-", "")) }
 		if normalize(matcher) != normalize(rule.Type) && !strings.HasPrefix(normalize(rule.Type), normalize(matcher)) {
 			return nil, err

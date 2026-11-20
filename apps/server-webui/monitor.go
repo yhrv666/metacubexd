@@ -43,7 +43,9 @@ func (k *kernel) call(ctx context.Context, method, path string, body io.Reader) 
 	if err != nil {
 		return nil, kernelError("Controller request failed")
 	}
-	req.Header.Set("Authorization", "Bearer "+k.secret)
+	if k.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+k.secret)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -163,7 +165,11 @@ func (p *panel) stream(w http.ResponseWriter, r *http.Request, session context.C
 		u.Scheme = "ws"
 	}
 	dialer := websocket.Dialer{HandshakeTimeout: 4 * time.Second}
-	up, res, err := dialer.DialContext(r.Context(), u.String(), http.Header{"Authorization": {"Bearer " + p.kernel.secret}})
+	var auth http.Header
+	if p.kernel.secret != "" {
+		auth = http.Header{"Authorization": {"Bearer " + p.kernel.secret}}
+	}
+	up, res, err := dialer.DialContext(r.Context(), u.String(), auth)
 	if err != nil {
 		if res != nil {
 			res.Body.Close()

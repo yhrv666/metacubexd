@@ -45,7 +45,7 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:18443", "loopback address to serve")
 	controller := flag.String("controller", "http://127.0.0.1:9090", "fixed Mihomo controller URL")
 	adminFile := flag.String("admin-file", "", "private file containing the administrator password")
-	controllerFile := flag.String("controller-secret-file", "", "private file containing the controller secret")
+	controllerFile := flag.String("controller-secret-file", "", "private controller credential file, if the target controller requires one")
 	baseConfig := flag.String("base-config", "", "fixed Mihomo startup config for managed previews")
 	stateDir := flag.String("state-dir", "", "private managed state directory; enables writes")
 	probeFile := flag.String("probe-file", "", "operator-supplied runtime probe specification")
@@ -106,9 +106,12 @@ func main() {
 	if err != nil || len(password) < 16 {
 		log.Fatal("admin password file must contain at least 16 characters")
 	}
-	secret, err := credential(*controllerFile)
-	if err != nil {
-		log.Fatal("controller secret file is invalid")
+	var secret string
+	if *controllerFile != "" {
+		secret, err = credential(*controllerFile)
+		if err != nil {
+			log.Fatal("controller secret file is invalid")
+		}
 	}
 	web, err := fs.Sub(assets, "web")
 	if err != nil {

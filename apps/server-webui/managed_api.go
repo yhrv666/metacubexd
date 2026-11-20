@@ -143,6 +143,13 @@ func (p *panel) previewManaged(w http.ResponseWriter, r *http.Request, key strin
 			p.drafts[key] = draft
 		}
 		p.mu.Unlock()
+		time.AfterFunc(time.Until(draft.expires), func() {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			if p.drafts[key].id == draft.id {
+				delete(p.drafts, key)
+			}
+		})
 		result["draft"] = draft.id
 	}
 	respond(w, 200, result)

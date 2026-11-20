@@ -6,7 +6,7 @@
 
 1. 在 fork 合入通过的 PR。核对 fork 上 `main` 的同一 SHA 的 Server CI 成功，确认 systemd、Docker、迁移、恢复及 30 分钟负载记录。候选 tag 使用 `git tag -a server-v0.1.0-rc.1 <SHA> -m "Server v0.1.0 candidate 1"`，随后只推送这个 tag。修订时递增候选号。
 2. 从预发布下载 `metacubexd-server-linux-amd64.tar.gz`、`SHA256SUMS` 和 `build-manifest.json`。核对校验文件中的 amd64 包和清单，以及清单中的源码 SHA。在服务器使用受限权限目录再次校验传入的文件。使用独立版本目录 `/opt/metacubexd-server/<候选版本>`，由 root 持有二进制和 `current` 版本链接。
-3. 建立专用 systemd 用户 `metacubexd`。管理员密码和控制器密钥分别写入 `/etc/metacubexd-server/admin` 和 `/etc/metacubexd-server/controller`，归专用用户所有，权限 `0600`。在服务器本地从已确认的启动文件读取控制器密钥。以 unit 模板启动，按实际控制端口修改 `-controller` 为可从主机到达的控制器地址。面板监听 `127.0.0.1:18443`；控制器端口来自现有栈。通过 `ssh -N -L 18443:127.0.0.1:18443 beijing-daji` 访问。此阶段省略 `-state-dir`，保持只读。
+3. 建立专用 systemd 用户 `metacubexd`。将独立管理员密码写入 `/etc/metacubexd-server/admin`，归专用用户所有，权限 `0600`。如果目标配置了控制器密钥，同样在服务器本地建立 `/etc/metacubexd-server/controller`，并给面板添加 `-controller-secret-file`。以 unit 模板启动，按实际控制端口修改 `-controller` 为可从主机到达的控制器地址。面板监听 `127.0.0.1:18443`。通过 `ssh -N -L 18443:127.0.0.1:18443 beijing-daji` 访问。只读阶段省略 `-state-dir`。
 4. 检查连接、规则和日志更新。分别由 Magpie 的 OpenAI 请求、Antigravity Tool 的目标请求及一条非白名单请求建立基线。记录请求结果、命中规则、内核报告的链路。通过相同代理路径访问独立出口探针，只在服务器本地比较预期家宽出口。验收记录写“匹配”或“不匹配”。
 
 ## 隔离演练

@@ -48,7 +48,7 @@ func TestIsolatedMihomoInstance(t *testing.T) {
 	defer relay.Close()
 	_, relayPort, _ := net.SplitHostPort(relay.Addr().String())
 	_, port, _ := net.SplitHostPort(mixed)
-	base := fmt.Sprintf("mixed-port: %s\nexternal-controller: %s\nsecret: %s\nmode: rule\nlog-level: silent\nallow-lan: false\nprofile: {store-selected: false}\nhosts: {outside.example: 127.0.0.1, api.openai.com: 127.0.0.1, cloudcode-pa.googleapis.com: 127.0.0.1}\nproxies:\n  - {name: relay, type: socks5, server: 127.0.0.1, port: %s}\nrules:\n  - MATCH,DIRECT\n", port, controller, secret, relayPort)
+	base := fmt.Sprintf("mixed-port: %s\nexternal-controller: %s\nsecret: %s\nmode: rule\nlog-level: silent\nallow-lan: false\nprofile: {store-selected: false}\nhosts: {outside.example: 127.0.0.1, api.openai.com: 127.0.0.1, cloudcode-pa.googleapis.com: 127.0.0.1}\nproxies:\n  - {name: relay, type: socks5, server: 127.0.0.1, port: %s}\nrules:\n  - IP-CIDR6,2001:db8::/32,REJECT,no-resolve\n  - MATCH,DIRECT\n", port, controller, secret, relayPort)
 	if err := os.WriteFile(config, []byte(base), 0600); err != nil {
 		t.Fatal(err)
 	}
