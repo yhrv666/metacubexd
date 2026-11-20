@@ -39,7 +39,7 @@ class ImageUpdateTest(unittest.TestCase):
             updater, "command", return_value=SimpleNamespace(returncode=0, stdout="-state-dir /private")
         ))
 
-    def stage(self, _tag, _ref, _info, _arch, _revision, work):
+    def stage(self, _release, _ref, _info, _arch, _revision, work):
         binary = work / updater.BINARY
         binary.write_bytes(b"new")
         return binary
@@ -48,7 +48,7 @@ class ImageUpdateTest(unittest.TestCase):
         def release(tag, *, manifest=True, draft=False):
             return {
                 "tag_name": tag, "prerelease": "-rc." in tag, "draft": draft,
-                "assets": [{"name": updater.MANIFEST}] if manifest else [],
+                "assets": [{"name": updater.MANIFEST, "id": 123}] if manifest else [],
             }
 
         releases = [
@@ -56,8 +56,12 @@ class ImageUpdateTest(unittest.TestCase):
             release("server-v0.1.1", manifest=False),
             release("server-v0.1.0-rc.10"), release(NEW), release("server-v0.1.0"),
         ]
-        self.assertEqual(updater.newest_release(releases), "server-v0.1.0")
-        self.assertEqual(updater.newest_release(releases[:-1]), "server-v0.1.0-rc.10")
+        self.assertEqual(updater.newest_release(releases)["tag_name"], "server-v0.1.0")
+        self.assertEqual(updater.newest_release(releases[:-1])["tag_name"], "server-v0.1.0-rc.10")
+        selected = updater.newest_release(releases)
+        self.assertEqual(updater.asset_url(selected, updater.MANIFEST), f"{updater.API}/releases/assets/123")
+        with self.assertRaisesRegex(RuntimeError, "Release asset is unavailable"):
+            updater.asset_url(selected, "missing.tar.gz")
         info = {
             "archive": "metacubexd-server-image-linux-amd64.tar.gz",
             "archiveSha256": DIGEST, **self.info,
@@ -70,7 +74,7 @@ class ImageUpdateTest(unittest.TestCase):
 
     def test_install_and_same_binary_promotion(self):
         with patch.object(updater, "extract", side_effect=self.stage), patch.object(updater, "panel_ready") as ready:
-            updater.apply(NEW, self.previous, REF, self.info, "amd64", "b" * 40)
+            updater.apply({"tag_name": NEW}, self.previous, REF, self.info, "amd64", "b" * 40)
             ready.assert_called_once_with(True)
         target = updater.installed_directory()
         self.assertEqual(target.name, NEW + "-image")
@@ -79,7 +83,7 @@ class ImageUpdateTest(unittest.TestCase):
         self.assertFalse(updater.load("pending.json"))
 
         self.command.reset_mock()
-        updater.apply("server-v0.1.0", target, REF, self.info, "amd64", "b" * 40)
+        updater.apply({"tag_name": "server-v0.1.0"}, target, REF, self.info, "amd64", "b" * 40)
         self.command.assert_not_called()
         self.assertEqual(updater.installed_directory(), target)
         self.assertEqual(updater.load("installed.json")["tag"], "server-v0.1.0")
@@ -89,7 +93,7 @@ class ImageUpdateTest(unittest.TestCase):
             updater, "panel_ready", side_effect=[RuntimeError("candidate unavailable"), None]
         ) as ready:
             with self.assertRaisesRegex(RuntimeError, "candidate unavailable"):
-                updater.apply(NEW, self.previous, REF, self.info, "amd64", "b" * 40)
+                updater.apply({"tag_name": NEW}, self.previous, REF, self.info, "amd64", "b" * 40)
         self.assertEqual(ready.call_count, 2)
         self.assertEqual(updater.installed_directory(), self.previous)
         self.assertEqual(updater.load("failed.json"), {"tag": NEW, "image": REF})

@@ -18,7 +18,7 @@ git tag -a server-v0.1.0-rc.3 <SHA> -m "Server v0.1.0 candidate 3"
 git push origin refs/tags/server-v0.1.0-rc.3
 ```
 
-GitHub Actions 从该 SHA 的已验收包提取可执行文件，发布 `ghcr.io/yhrv666/metacubexd-server` 的 Linux amd64 和 arm64 镜像。Release 中的 `server-images.json` 记录镜像摘要、架构及校验值。北京每 10 分钟检查新版 Release，按摘要拉取镜像。GHCR 拉取失败时，改用同一 Release 中经过 SHA-256 校验的 Docker 镜像归档。
+GitHub Actions 从该 SHA 的已验收包提取可执行文件，发布 `ghcr.io/yhrv666/metacubexd-server` 的 Linux amd64 和 arm64 镜像。Release 中的 `server-images.json` 记录镜像摘要、架构及校验值。北京每 10 分钟通过 GitHub API 检查新版 Release，按摘要拉取镜像。GHCR 拉取失败时，通过 Release 资产 API 下载同一版本的 Docker 镜像归档并校验 SHA-256。
 
 首次部署时，在含更新器的服务器版发布包解压目录中，以 root 安装 systemd 定时器。主机需有 Python 3.10 或更新版本、Docker，以及已运行的 `metacubexd-server.service`。
 
