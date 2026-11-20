@@ -1,0 +1,39 @@
+name: Server CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, 'feat/server-webui', 'server/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    if: github.repository == 'yhrv666/metacubexd'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 10.34.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24.22.1
+          cache: pnpm
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.26.2
+          cache: false
+      - run: pnpm install --frozen-lockfile --filter @metacubexd/ui...
+      - run: pnpm --filter @metacubexd/ui test:unit
+      - name: Verify release isolation and tool versions
+        run: |
+          grep -F "if: github.repository == 'MetaCubeX/metacubexd'" .github/workflows/release.yml
+          test "$(node --version)" = v24.22.1
+          test "$(pnpm --version)" = 10.34.1
+          test "$(go env GOVERSION)" = go1.26.2
