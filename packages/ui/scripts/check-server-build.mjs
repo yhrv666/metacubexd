@@ -224,9 +224,13 @@ try {
     await initial.getByRole('button', { name: '脱敏预览' }).click()
     await initial.getByRole('button', { name: '发布预览' }).click()
     await initial.getByText('发布完成，运行态已验证。').waitFor()
-    const saved = await (
-      await context.request.get(url + '/api/managed/state')
-    ).text()
+    let saved = ''
+    await waitUntil(async () => {
+      const response = await context.request.get(url + '/api/managed/state')
+      if (!response.ok()) return false
+      saved = await response.text()
+      return saved.includes('home')
+    }, 'the published revision is unavailable')
     assert.ok(
       saved.includes('home') &&
         !saved.includes('fixture-password') &&
@@ -238,14 +242,13 @@ try {
       .fill('https://subscription.example/?value=synthetic-private')
     await initial.getByRole('button', { name: '新增或替换凭据' }).click()
     await initial.getByRole('button', { name: '刷新', exact: true }).click()
-    await initial.waitForFunction(
-      async () =>
-        (await (await fetch('/api/managed/state')).json()).subscriptions?.[0]
-          ?.refreshed,
-    )
-    const refreshed = await (
-      await context.request.get(url + '/api/managed/state')
-    ).text()
+    let refreshed = ''
+    await waitUntil(async () => {
+      const response = await context.request.get(url + '/api/managed/state')
+      if (!response.ok()) return false
+      refreshed = await response.text()
+      return Boolean(JSON.parse(refreshed).subscriptions?.[0]?.refreshed)
+    }, 'the refreshed subscription revision is unavailable')
     assert.ok(
       refreshed.includes('openai') && !refreshed.includes('synthetic-private'),
     )

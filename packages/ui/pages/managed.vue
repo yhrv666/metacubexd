@@ -138,6 +138,16 @@ function addRule() {
   rules.value.push({ chain: '', domains: '', sources: '', presets: [] })
 }
 
+function removeChain(index: number) {
+  chains.value.splice(index, 1)
+  draft.value = ''
+}
+
+function removeRule(index: number) {
+  rules.value.splice(index, 1)
+  draft.value = ''
+}
+
 function managedPayload() {
   return {
     chains: chains.value.map((chain) => ({
@@ -315,10 +325,7 @@ async function apply(action: 'publish' | 'rollback', id: string) {
           <button
             type="button"
             class="btn justify-self-start btn-ghost btn-sm sm:col-span-2"
-            @click="
-              chains.splice(index, 1)
-              draft = ''
-            "
+            @click="removeChain(index)"
           >
             删除链路
           </button>
@@ -383,10 +390,7 @@ async function apply(action: 'publish' | 'rollback', id: string) {
           <button
             type="button"
             class="btn justify-self-start btn-ghost btn-sm sm:col-span-2"
-            @click="
-              rules.splice(index, 1)
-              draft = ''
-            "
+            @click="removeRule(index)"
           >
             删除规则
           </button>
