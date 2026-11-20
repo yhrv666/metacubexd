@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -63,28 +64,38 @@ func (m managedConfig) preview() []chainPreview {
 	return result
 }
 
-var presets = map[string][]string{
-	"openai":      {"openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com"},
-	"antigravity": {"antigravity.google", "daily-cloudcode-pa.googleapis.com", "cloudcode-pa.googleapis.com", "autopush-cloudcode-pa.googleapis.com"},
+type domainSelector struct {
+	value string
+	exact bool
 }
 
-// Accept URI form and the legacy host:port:user:password form. Split only
-// the first three colons so literal colons in a legacy password survive.
+func (d domainSelector) matches(host string) bool {
+	return d.value == "" || host == d.value || !d.exact && strings.HasSuffix(host, "."+d.value)
+}
+
+var presets = map[string][]domainSelector{
+	"openai":      {{"openai.com", false}, {"chatgpt.com", false}, {"oaistatic.com", false}, {"oaiusercontent.com", false}},
+	"antigravity": {{"cloudcode-pa.googleapis.com", true}, {"daily-cloudcode-pa.googleapis.com", true}, {"daily-cloudcode-pa.sandbox.googleapis.com", true}, {"oauth2.googleapis.com", true}, {"accounts.google.com", true}, {"www.googleapis.com", true}},
+}
+
 func parseResidential(raw string) (*residential, error) {
 	invalid := errors.New("Invalid residential proxy string")
+	raw = strings.TrimSpace(raw)
 	if !strings.Contains(raw, "://") {
-		parts := strings.SplitN(strings.TrimSpace(raw), ":", 4)
-		if len(parts) != 4 {
+		hostPortUser, password, ok := cutLastColon(raw)
+		hostPort, user, hasUser := cutLastColon(hostPortUser)
+		host, portString, hasPort := cutLastColon(hostPort)
+		if !ok || !hasUser || !hasPort || user == "" || password == "" {
 			return nil, invalid
 		}
-		port, err := strconv.ParseUint(parts[1], 10, 16)
+		port, err := strconv.ParseUint(portString, 10, 16)
 		if err != nil {
 			return nil, invalid
 		}
-		return &residential{"socks5", parts[0], uint16(port), parts[2], parts[3]}, nil
+		return &residential{"socks5", strings.Trim(host, "[]"), uint16(port), user, password}, nil
 	}
-	uri, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || uri.Path != "" || uri.RawQuery != "" || uri.Fragment != "" {
+	uri, err := url.Parse(raw)
+	if err != nil || (uri.Path != "" && uri.Path != "/") || uri.RawQuery != "" || uri.ForceQuery || uri.Fragment != "" {
 		return nil, invalid
 	}
 	port, err := strconv.ParseUint(uri.Port(), 10, 16)
@@ -92,7 +103,19 @@ func parseResidential(raw string) (*residential, error) {
 		return nil, invalid
 	}
 	password, _ := uri.User.Password()
-	return &residential{uri.Scheme, uri.Hostname(), uint16(port), uri.User.Username(), password}, nil
+	scheme := strings.ToLower(uri.Scheme)
+	if scheme == "socks5h" {
+		scheme = "socks5"
+	}
+	return &residential{scheme, uri.Hostname(), uint16(port), uri.User.Username(), password}, nil
+}
+
+func cutLastColon(value string) (string, string, bool) {
+	index := strings.LastIndexByte(value, ':')
+	if index < 0 {
+		return value, "", false
+	}
+	return value[:index], value[index+1:], true
 }
 
 func validDomain(value string) bool {
@@ -111,7 +134,7 @@ func validateResidential(p *residential) bool {
 	if p == nil || !slices.Contains([]string{"socks5", "http", "https"}, p.Type) || p.Port == 0 {
 		return false
 	}
-	if (p.Username == "") != (p.Password == "") || len(p.Username) > 1024 || len(p.Password) > 1024 || strings.ContainsAny(p.Username+p.Password, "\r\n\x00") {
+	if (p.Username == "") != (p.Password == "") || len(p.Username) > 1024 || len(p.Password) > 4096 || strings.IndexFunc(p.Username+p.Password, unicode.IsControl) >= 0 {
 		return false
 	}
 	if ip, err := netip.ParseAddr(p.Host); err == nil {
@@ -337,8 +360,9 @@ func isLocalListener(root *yaml.Node, host string, port uint16) bool {
 }
 
 type ruleScope struct {
-	chain, domain string
-	source        netip.Prefix
+	chain  string
+	domain domainSelector
+	source netip.Prefix
 }
 
 func expandRules(rules []managedRule, chains map[string]bool) ([]*yaml.Node, error) {
@@ -351,7 +375,14 @@ func expandRules(rules []managedRule, chains map[string]bool) ([]*yaml.Node, err
 		if len(rule.Domains) > 64 || len(rule.Sources) > 32 || len(rule.Presets) > len(presets) {
 			return nil, fmt.Errorf("Selector limit exceeded in rule %d", i+1)
 		}
-		domains := slices.Clone(rule.Domains)
+		domains := make([]domainSelector, 0, len(rule.Domains)+6)
+		for _, value := range rule.Domains {
+			value = strings.ToLower(strings.TrimSpace(value))
+			if !validDomain(value) {
+				return nil, fmt.Errorf("Invalid domain in rule %d", i+1)
+			}
+			domains = append(domains, domainSelector{value: value})
+		}
 		for _, preset := range rule.Presets {
 			list, ok := presets[preset]
 			if !ok {
@@ -374,14 +405,10 @@ func expandRules(rules []managedRule, chains map[string]bool) ([]*yaml.Node, err
 			}
 		}
 		if len(domains) == 0 {
-			domains = []string{""}
+			domains = []domainSelector{{}}
 		}
 		seen := make(map[ruleScope]bool)
 		for _, domain := range domains {
-			domain = strings.ToLower(strings.TrimSpace(domain))
-			if domain == "" && len(rule.Domains) > 0 || domain != "" && !validDomain(domain) {
-				return nil, fmt.Errorf("Invalid domain in rule %d", i+1)
-			}
 			for _, source := range sources {
 				scope := ruleScope{rule.Chain, domain, source}
 				if seen[scope] {
@@ -392,7 +419,7 @@ func expandRules(rules []managedRule, chains map[string]bool) ([]*yaml.Node, err
 					if other.chain == scope.chain {
 						continue
 					}
-					domainOverlap := other.domain == "" || domain == "" || other.domain == domain || strings.HasSuffix(domain, "."+other.domain) || strings.HasSuffix(other.domain, "."+domain)
+					domainOverlap := domain.matches(other.domain.value) || other.domain.matches(domain.value)
 					if domainOverlap && (!source.IsValid() || !other.source.IsValid() || source.Overlaps(other.source)) {
 						return nil, fmt.Errorf("Conflicting source and domain selectors in rule %d", i+1)
 					}
@@ -401,10 +428,13 @@ func expandRules(rules []managedRule, chains map[string]bool) ([]*yaml.Node, err
 				if len(scopes) > 1024 {
 					return nil, errors.New("Expanded rule limit exceeded")
 				}
-				match := "DOMAIN-SUFFIX," + domain
+				match := "DOMAIN-SUFFIX," + domain.value
+				if domain.exact {
+					match = "DOMAIN," + domain.value
+				}
 				if source.IsValid() {
 					prefix := "SRC-IP-CIDR," + source.String()
-					if domain == "" {
+					if domain.value == "" {
 						match = prefix
 					} else {
 						match = "AND,((" + prefix + "),(" + match + "))"

@@ -61,7 +61,7 @@ async function updateSubscription(
   pending.value = true
   draft.value = ''
   try {
-    const response = await fetch(`/api/managed/subscription-${  action}`, {
+    const response = await fetch(`/api/managed/subscription-${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -119,6 +119,7 @@ onMounted(loadState)
 const split = (value: string) => value.split(/[\s,]+/).filter(Boolean)
 
 function addChain() {
+  draft.value = ''
   chains.value.push({
     id: '',
     transit: '',
@@ -133,6 +134,7 @@ function addChain() {
 }
 
 function addRule() {
+  draft.value = ''
   rules.value.push({ chain: '', domains: '', sources: '', presets: [] })
 }
 
@@ -313,7 +315,10 @@ async function apply(action: 'publish' | 'rollback', id: string) {
           <button
             type="button"
             class="btn justify-self-start btn-ghost btn-sm sm:col-span-2"
-            @click="chains.splice(index, 1)"
+            @click="
+              chains.splice(index, 1)
+              draft = ''
+            "
           >
             删除链路
           </button>
@@ -378,7 +383,10 @@ async function apply(action: 'publish' | 'rollback', id: string) {
           <button
             type="button"
             class="btn justify-self-start btn-ghost btn-sm sm:col-span-2"
-            @click="rules.splice(index, 1)"
+            @click="
+              rules.splice(index, 1)
+              draft = ''
+            "
           >
             删除规则
           </button>

@@ -19,7 +19,7 @@ type migrationReport struct {
 	NeedsOperatorReview    bool
 }
 
-var legacyWrite = regexp.MustCompile("(?im)(>{1,2}\\s*[^&]|\\b(sed\\s+-i|tee|mv|cp|install|crontab)\\b)")
+var legacyWrite = regexp.MustCompile("(?im)(>{1,2}\\s*[^&]|\\b(sed\\s+-i|tee|mv|cp|install|crontab)\\b|\\b(os\\.replace|yaml\\.safe_dump|write_text|write_bytes)\\s*\\()")
 var legacyReload = regexp.MustCompile("(?im)(/configs\\b|systemctl\\s+(reload|restart)|docker\\s+(restart|kill)|\\bkill\\s+-[A-Z]+)")
 
 func migrationCheck(config, script []byte) (migrationReport, error) {

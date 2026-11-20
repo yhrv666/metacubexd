@@ -19,7 +19,7 @@ func TestSubscriptionRefreshPreservesManagedAndOriginalRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := string(refreshed.Config)
-	for _, expected := range []string{"replacement.example", "DOMAIN-SUFFIX,openai.com,MCXD-RESIDENTIAL-home", "DOMAIN-SUFFIX,antigravity.google,MCXD-RESIDENTIAL-home", "DOMAIN-SUFFIX,example.test,DIRECT", "MATCH,REJECT"} {
+	for _, expected := range []string{"replacement.example", "DOMAIN-SUFFIX,openai.com,MCXD-RESIDENTIAL-home", "DOMAIN,cloudcode-pa.googleapis.com,MCXD-RESIDENTIAL-home", "DOMAIN-SUFFIX,example.test,DIRECT", "MATCH,REJECT"} {
 		if !strings.Contains(cfg, expected) {
 			t.Fatalf("missing %s", expected)
 		}

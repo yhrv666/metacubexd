@@ -175,23 +175,24 @@ func expectedPolicy(probe routeProbe, source netip.Addr, configured []string, ob
 		if !strings.HasPrefix(rule.Proxy, managedPrefix) {
 			break
 		}
-		var domain, ip string
+		var domain domainSelector
+		var ip string
 		for _, part := range strings.Split(configured[i], ",") {
 			part = strings.Trim(part, "()")
-			if domain == "next" {
-				domain = part
+			if domain.value == "next" {
+				domain.value = part
 			}
 			if ip == "next" {
 				ip = part
 			}
-			if part == "DOMAIN-SUFFIX" {
-				domain = "next"
+			if part == "DOMAIN-SUFFIX" || part == "DOMAIN" {
+				domain = domainSelector{"next", part == "DOMAIN"}
 			}
 			if part == "SRC-IP-CIDR" {
 				ip = "next"
 			}
 		}
-		if domain != "" && host != domain && !strings.HasSuffix(host, "."+domain) {
+		if !domain.matches(host) {
 			continue
 		}
 		if ip != "" {

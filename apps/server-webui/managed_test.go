@@ -9,7 +9,7 @@ import (
 const testBase = "mode: rule\nproxies:\n  - {name: transit, type: socks5, server: transit.example, port: 1080}\nrules:\n  - DOMAIN-SUFFIX,example.test,DIRECT\n  - MATCH,REJECT\n"
 
 func TestManagedChainsAndRules(t *testing.T) {
-	for _, input := range []string{"socks5://synthetic-user:synthetic%3Apassword@residential.example:1080", "residential.example:1080:synthetic-user:synthetic:password"} {
+	for _, input := range []string{"socks5h://synthetic-user:synthetic-password@residential.example:1080/", "residential.example:1080:synthetic-user:synthetic-password", "[2001:db8::2]:1080:synthetic-user:synthetic-password"} {
 		incoming := managedConfig{
 			Chains: []managedChain{{ID: "home", Transit: "transit", Import: input}},
 			Rules:  []managedRule{{Chain: "home", Presets: []string{"openai", "antigravity"}, Sources: []string{"192.0.2.12/24"}}},
@@ -19,7 +19,7 @@ func TestManagedChainsAndRules(t *testing.T) {
 			t.Fatal(err)
 		}
 		output := string(result)
-		for _, expected := range []string{"dialer-proxy: transit", "synthetic:password", "AND,((SRC-IP-CIDR,192.0.2.0/24),(DOMAIN-SUFFIX,openai.com)),MCXD-RESIDENTIAL-home", "DOMAIN-SUFFIX,cloudcode-pa.googleapis.com", "DOMAIN-SUFFIX,example.test,DIRECT", "MATCH,REJECT"} {
+		for _, expected := range []string{"dialer-proxy: transit", "synthetic-password", "AND,((SRC-IP-CIDR,192.0.2.0/24),(DOMAIN-SUFFIX,openai.com)),MCXD-RESIDENTIAL-home", "DOMAIN,cloudcode-pa.googleapis.com", "DOMAIN,accounts.google.com", "DOMAIN-SUFFIX,example.test,DIRECT", "MATCH,REJECT"} {
 			if !strings.Contains(output, expected) {
 				t.Errorf("candidate lacks %s", expected)
 			}
