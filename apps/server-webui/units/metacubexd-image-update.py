@@ -324,6 +324,7 @@ def mode_settings(profile):
         f"Environment={systemd_arg(f'MCXD_PROBE_FILE={probe.resolve(strict=True)}')}\n"
         f"Environment={systemd_arg(f'MCXD_STATE_DIR={state_dir}')}\n"
         f"ReadWritePaths={systemd_arg(config.parent)}\n"
+        "RestrictAddressFamilies=AF_NETLINK\n"
         + state_unit
     )
     args = [ROOT / "current" / BINARY, "-validator-service", "-validator-socket", VALIDATOR_SOCKET,

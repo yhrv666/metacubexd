@@ -148,6 +148,7 @@ class ImageUpdateTest(unittest.TestCase):
             actual, user, panel, validator = updater.mode_settings(profile)
         self.assertEqual((actual, user), (config, "metacubexd"))
         self.assertIn(f"MCXD_BASE_CONFIG={config}".encode(), panel)
+        self.assertIn(b"RestrictAddressFamilies=AF_NETLINK\n", panel)
         self.assertIn(b'"-docker-entrypoint" "/usr/local/bin/mihomo"', validator)
         self.assertIn(("sha256:" + DIGEST).encode(), validator)
 
