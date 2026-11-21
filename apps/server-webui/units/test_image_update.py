@@ -1,6 +1,7 @@
 from contextlib import ExitStack
 import hashlib
 import importlib.util
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -101,6 +102,54 @@ class ImageUpdateTest(unittest.TestCase):
         self.assertEqual(updater.installed_directory(), self.previous)
         self.assertEqual(updater.load("failed.json"), {"tag": NEW, "image": REF})
         self.assertFalse(updater.load("pending.json"))
+
+    def test_mode_override_takes_precedence_over_legacy_args(self):
+        self.command.return_value.stdout = "OTHER=value MCXD_WRITE_MODE=writable"
+        self.assertTrue(updater.configured_writable())
+        self.command.return_value.stdout = "MCXD_WRITE_MODE=read-only"
+        self.assertFalse(updater.configured_writable())
+        self.command.return_value.stdout = "argv[]=/panel -state-dir=/private"
+        self.assertTrue(updater.configured_writable())
+
+    def test_container_config_requires_a_writable_directory_bind(self):
+        host = self.previous
+        mounts = [{"Type": "bind", "Source": str(host), "Destination": "/etc/mihomo", "RW": True}]
+        self.assertEqual(
+            updater.docker_host_path(mounts, "/etc/mihomo/a/config.yaml", writable=True),
+            host / "a" / "config.yaml",
+        )
+        mounts.append({"Type": "bind", "Source": str(host / updater.BINARY),
+                       "Destination": "/etc/mihomo/a/config.yaml", "RW": True})
+        with self.assertRaisesRegex(RuntimeError, "directory bind mount"):
+            updater.docker_host_path(mounts, "/etc/mihomo/a/config.yaml", writable=True)
+        mounts[0]["RW"] = False
+        with self.assertRaisesRegex(RuntimeError, "writable"):
+            updater.docker_host_path(mounts, "/etc/mihomo/config.yaml", writable=True)
+
+    def test_docker_mode_uses_inspected_image_and_entrypoint(self):
+        config = self.previous / updater.BINARY
+        inspect = [{
+            "State": {"Running": True},
+            "Image": "sha256:" + DIGEST,
+            "Path": "/usr/local/bin/mihomo",
+            "Mounts": [{"Type": "bind", "Source": str(self.previous), "Destination": "/etc/mihomo", "RW": True}],
+        }]
+        profile = {
+            "container": "mihomo", "config": "/etc/mihomo/" + updater.BINARY,
+            "kernel_home": "/etc/mihomo", "probe_file": str(config), "docker_entrypoint": "",
+        }
+
+        def run(*args, **kwargs):
+            output = json.dumps(inspect) if args[0] == "/usr/bin/docker" else "metacubexd"
+            return SimpleNamespace(stdout=output, returncode=0)
+
+        self.command.side_effect = run
+        with patch.object(updater.shutil, "which", return_value="/usr/bin/docker"):
+            actual, user, panel, validator = updater.mode_settings(profile)
+        self.assertEqual((actual, user), (config, "metacubexd"))
+        self.assertIn(f"MCXD_BASE_CONFIG={config}".encode(), panel)
+        self.assertIn(b'"-docker-entrypoint" "/usr/local/bin/mihomo"', validator)
+        self.assertIn(("sha256:" + DIGEST).encode(), validator)
 
 
 if __name__ == "__main__":

@@ -101,7 +101,7 @@ func TestIsolatedMihomoInstance(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	check, err := fixedValidator(home, binaryPath, dockerPath, image)
+	check, err := fixedValidator(home, binaryPath, dockerPath, image, "/mihomo")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -75,6 +75,7 @@ func main() {
 	kernelBinary := flag.String("kernel-binary", "", "absolute path to the fixed host Mihomo binary")
 	dockerBinary := flag.String("docker-binary", "", "absolute path to the Docker CLI for the validator")
 	dockerImage := flag.String("docker-image", "", "immutable image ID of the target instance")
+	dockerEntrypoint := flag.String("docker-entrypoint", "/mihomo", "absolute Mihomo executable path in the validation image")
 	migration := flag.Bool("migration-check", false, "emit a sanitized read-only report about the startup configuration")
 	legacyScript := flag.String("legacy-script", "", "optional locally configured script to scan during migration preflight")
 	flag.Parse()
@@ -100,7 +101,7 @@ func main() {
 		return
 	}
 	if *validatorService {
-		validate, err := fixedValidator(*kernelHome, *kernelBinary, *dockerBinary, *dockerImage)
+		validate, err := fixedValidator(*kernelHome, *kernelBinary, *dockerBinary, *dockerImage, *dockerEntrypoint)
 		if err != nil || !filepath.IsAbs(*validatorSocket) {
 			log.Fatal("invalid fixed validator settings")
 		}
@@ -141,6 +142,21 @@ func main() {
 		log.Fatal("build the server UI before building the binary")
 	}
 	app := newPanel(sha256.Sum256([]byte(password)), newKernel(origin, secret), http.FileServerFS(web))
+	switch os.Getenv("MCXD_WRITE_MODE") {
+	case "":
+	case "read-only":
+		*stateDir = ""
+	case "writable":
+		*baseConfig = os.Getenv("MCXD_BASE_CONFIG")
+		*stateDir = os.Getenv("MCXD_STATE_DIR")
+		*probeFile = os.Getenv("MCXD_PROBE_FILE")
+		*validatorSocket = "/run/metacubexd-validator/validate.sock"
+		if *stateDir == "" {
+			log.Fatal("MCXD_STATE_DIR is required for scripted write mode")
+		}
+	default:
+		log.Fatal("invalid MCXD_WRITE_MODE")
+	}
 	app.baseConfig = *baseConfig
 	if executable, err := os.Executable(); err == nil {
 		if resolved, err := filepath.EvalSymlinks(executable); err == nil {
