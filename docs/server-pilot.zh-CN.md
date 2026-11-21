@@ -18,7 +18,7 @@ git tag -a server-v0.1.0-rc.3 <SHA> -m "Server v0.1.0 candidate 3"
 git push origin refs/tags/server-v0.1.0-rc.3
 ```
 
-GitHub Actions 从该 SHA 的已验收包提取可执行文件，发布 `ghcr.io/yhrv666/metacubexd-server` 的 Linux amd64 和 arm64 镜像。Release 中的 `server-images.json` 记录镜像摘要、架构及校验值。北京每 10 分钟检查新版 Release，按摘要拉取镜像。GHCR 拉取失败时，改用同一 Release 中经过 SHA-256 校验的 Docker 镜像归档。
+GitHub Actions 从该 SHA 的已验收包提取可执行文件，发布 `ghcr.io/yhrv666/metacubexd-server` 的 Linux amd64 和 arm64 镜像。Release 中的 `server-images.json` 记录镜像摘要、架构及校验值。北京每 10 分钟通过 GitHub API 检查新版 Release，按摘要拉取镜像。GHCR 拉取失败时，通过 Release 资产 API 下载同一版本的 Docker 镜像归档并校验 SHA-256。
 
 首次部署时，在含更新器的服务器版发布包解压目录中，以 root 安装 systemd 定时器。主机需有 Python 3.10 或更新版本、Docker，以及已运行的 `metacubexd-server.service`。
 
@@ -34,6 +34,8 @@ journalctl -u metacubexd-image-update.service -n 50 --no-pager
 ```
 
 更新器从镜像提取并校验可执行文件，切换版本链接后通过现有 systemd 服务运行。它沿用面板密码、控制器连接和当前读写设置。登录、控制器连通性或管理状态检查失败时，自动恢复上一版。需要暂停后续检查时，运行 `systemctl disable --now metacubexd-image-update.timer`。稳定 tag 仍按下方的生产观察结果决定。
+
+下载和安装最多运行 30 分钟。北京在 `metacubexd-image-update.service` 的 systemd drop-in 中设置 `HTTPS_PROXY`，让 GitHub API 和 Release 资产下载使用现有的本机 HTTP 代理。
 
 ## 隔离演练
 

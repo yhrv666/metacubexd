@@ -17,6 +17,7 @@ import time
 import urllib.request
 
 REPO = "yhrv666/metacubexd"
+API = f"https://api.github.com/repos/{REPO}"
 REGISTRY = f"ghcr.io/{REPO}-server"
 SERVICE = "metacubexd-server.service"
 VALIDATOR = "metacubexd-validator.service"
@@ -25,6 +26,7 @@ STATE = Path("/var/lib/metacubexd-image-update")
 PANEL = "http://127.0.0.1:18443"
 BINARY = "metacubexd-server"
 MANIFEST = "server-images.json"
+ASSET_MEDIA_TYPE = "application/octet-stream"
 HEX = re.compile(r"[0-9a-f]{64}")
 TAG = re.compile(r"server-v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(?:-rc\.([1-9][0-9]{0,8}))?")
 
@@ -37,30 +39,36 @@ def version(tag):
     return int(major), int(minor), int(patch), rc is None, int(rc or 0)
 
 
-def request(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "metacubexd-image-update"})
+def request(url, accept="application/vnd.github+json"):
+    req = urllib.request.Request(url, headers={"User-Agent": "metacubexd-image-update", "Accept": accept})
     return urllib.request.urlopen(req, timeout=25)
 
 
-def read_json(url):
-    with request(url) as response:
+def read_json(url, accept="application/vnd.github+json"):
+    with request(url, accept) as response:
         data = response.read((4 << 20) + 1)
     if len(data) > 4 << 20:
         raise RuntimeError("GitHub response exceeds its limit")
     return json.loads(data)
 
 
-def release_url(tag, name):
-    return f"https://github.com/{REPO}/releases/download/{tag}/{name}"
+def asset_url(release, name):
+    for asset in release["assets"]:
+        if asset["name"] == name:
+            asset_id = asset["id"]
+            if type(asset_id) is int and asset_id > 0:
+                return f"{API}/releases/assets/{asset_id}"
+            break
+    raise RuntimeError(f"Release asset is unavailable: {name}")
 
 
 def newest_release(releases):
     return max((
-        item["tag_name"] for item in releases
+        item for item in releases
         if version(item["tag_name"]) and not item["draft"]
         and item["prerelease"] == ("-rc." in item["tag_name"])
         and any(asset["name"] == MANIFEST for asset in item["assets"])
-    ), key=version, default="")
+    ), key=lambda item: version(item["tag_name"]), default=None)
 
 
 def image_manifest(tag, manifest, arch):
@@ -92,9 +100,9 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def archive_image(tag, info, work):
+def archive_image(release, info, work):
     archive = work / info["archive"]
-    with request(release_url(tag, archive.name)) as response, archive.open("xb") as out:
+    with request(asset_url(release, archive.name), ASSET_MEDIA_TYPE) as response, archive.open("xb") as out:
         total = 0
         while block := response.read(1 << 20):
             total += len(block)
@@ -104,10 +112,10 @@ def archive_image(tag, info, work):
     if sha256(archive) != info["archiveSha256"]:
         raise RuntimeError("Image archive checksum does not match")
     command("docker", "load", "--input", str(archive), timeout=120)
-    return f"{REGISTRY}:{tag}"
+    return f"{REGISTRY}:{release['tag_name']}"
 
 
-def extract(tag, ref, info, arch, revision, work):
+def extract(release, ref, info, arch, revision, work):
     image = ref
     try:
         pulled = command("docker", "pull", "--platform", f"linux/{arch}", ref, check=False, timeout=90).returncode == 0
@@ -115,13 +123,13 @@ def extract(tag, ref, info, arch, revision, work):
         pulled = False
     if not pulled:
         print("Using the checksummed GitHub Release image archive.", flush=True)
-        image = archive_image(tag, info, work)
+        image = archive_image(release, info, work)
     details = json.loads(command("docker", "image", "inspect", image).stdout)[0]
     labels = details["Config"]["Labels"] or {}
     if (details["Os"] != "linux" or details["Architecture"] != arch
             or labels.get("org.opencontainers.image.source") != f"https://github.com/{REPO}"
             or labels.get("org.opencontainers.image.revision") != revision
-            or labels.get("org.opencontainers.image.version") != tag):
+            or labels.get("org.opencontainers.image.version") != release["tag_name"]):
         raise RuntimeError("Image platform or release labels do not match")
     container = command("docker", "create", "--network", "none", details["Id"]).stdout.strip()
     binary = work / BINARY
@@ -222,7 +230,8 @@ def recover():
     (STATE / "pending.json").unlink()
 
 
-def apply(tag, current, ref, info, arch, revision):
+def apply(release, current, ref, info, arch, revision):
+    tag = release["tag_name"]
     receipt = {"tag": tag, "image": ref, "target": current.name}
     if sha256(current / BINARY) == info["binarySha256"]:
         save("installed.json", receipt)
@@ -235,7 +244,7 @@ def apply(tag, current, ref, info, arch, revision):
     else:
         with tempfile.TemporaryDirectory(prefix=".image-update-", dir=ROOT) as temp:
             work = Path(temp)
-            binary = extract(tag, ref, info, arch, revision, work)
+            binary = extract(release, ref, info, arch, revision, work)
             stage = work / "version"
             stage.mkdir()
             stage.chmod(0o755)
@@ -266,17 +275,18 @@ def update(check):
     current = installed_directory()
     installed = load("installed.json")
     installed_tag = installed.get("tag", "") if installed.get("target") == current.name else current.name.removesuffix("-image")
-    tag = newest_release(read_json(f"https://api.github.com/repos/{REPO}/releases?per_page=100"))
-    if version(tag) <= version(installed_tag):
+    release = newest_release(read_json(f"{API}/releases?per_page=100"))
+    if release is None or version(release["tag_name"]) <= version(installed_tag):
         print("No newer server release with a published image.")
         return
     arch = {"x86_64": "amd64", "aarch64": "arm64"}[platform.machine()]
-    manifest = read_json(release_url(tag, MANIFEST))
+    tag = release["tag_name"]
+    manifest = read_json(asset_url(release, MANIFEST), ASSET_MEDIA_TYPE)
     ref, info = image_manifest(tag, manifest, arch)
     if check:
         print(f"Available {tag}: {ref}")
     elif load("failed.json") != {"tag": tag, "image": ref}:
-        apply(tag, current, ref, info, arch, manifest["sha"])
+        apply(release, current, ref, info, arch, manifest["sha"])
     else:
         print(f"{tag} was rolled back. Waiting for a newer release.")
 

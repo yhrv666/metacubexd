@@ -10,5 +10,5 @@ StateDirectoryMode=0700
 UMask=0077
 ExecStart=/usr/bin/python3 /usr/local/libexec/metacubexd-image-update.py
 ExecStopPost=/usr/bin/python3 /usr/local/libexec/metacubexd-image-update.py --recover
-TimeoutStartSec=5min
+TimeoutStartSec=30min
 TimeoutStopSec=2min
