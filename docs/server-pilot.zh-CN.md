@@ -30,10 +30,12 @@ systemctl daemon-reload
 /usr/local/libexec/metacubexd-image-update.py --check
 systemctl enable --now metacubexd-image-update.timer
 systemctl list-timers metacubexd-image-update.timer
-journalctl -u metacubexd-image-update.service -n 50 --no-pager
+/usr/local/libexec/metacubexd-image-update.py --logs
 ```
 
 更新器从镜像提取并校验可执行文件，切换版本链接后通过现有 systemd 服务运行。它沿用面板密码、控制器连接和当前读写设置。登录、控制器连通性或管理状态检查失败时，自动恢复上一版。需要暂停后续检查时，运行 `systemctl disable --now metacubexd-image-update.timer`。稳定 tag 仍按下方的生产观察结果决定。
+
+`--logs` 隐藏例行检查消息，保留最近 50 条有匹配的更新、错误和回滚日志。`--all-logs` 查看未过滤的日志。面板右上角显示当前服务器发布 tag。手动安装压缩包时，使用与发布 tag 对应的版本目录名。
 
 下载和安装最多运行 30 分钟。北京在 `metacubexd-image-update.service` 的 systemd drop-in 中设置 `HTTPS_PROXY`，让 GitHub API 和 Release 资产下载使用现有的本机 HTTP 代理。
 
@@ -54,7 +56,7 @@ journalctl -u metacubexd-image-update.service -n 50 --no-pager
 
 ## 单次生产发布
 
-1. 持续检查原有调用方及每个入口，至少每秒采样一次。核对备份后暂停旧脚本和其他已发现的写入入口。根据实际目录和 probe 设置给面板添加 `-base-config`、`-state-dir`、`-validator-socket` 和 `-probe-file`。启动后检查显示的基准版本。
+1. 持续检查原有调用方及每个入口，至少每秒采样一次。核对备份后暂停旧脚本和其他已发现的写入入口。按[写入模式说明](../README.md#写入模式)启用写入。沿用手工部署时可继续使用 `-base-config`、`-state-dir`、`-validator-socket` 和 `-probe-file`。启动后检查显示的基准版本。
 2. 从网页发布一份与现行行为等价的配置。验证新旧监控、Magpie OpenAI、Antigravity Tool、非白名单及调用方连通性。计算最长连续失败时间。任一入口连续失败超过 5 秒、链路错走或回滚未验证时立即停止晋级并恢复上一版。生产故障注入不在试装范围内。
 3. 连续观察 24 小时。检查配置漂移、代理错误、订阅覆盖、内存曲线和调用方连通性。完成后停止并持久禁用旧写入入口，保留回退备份。将同一个源码 SHA 打稳定 tag `server-v0.1.0`。稳定工作流晋级候选的同一批文件。对比两次 Release 的 SHA-256。
 

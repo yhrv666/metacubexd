@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -37,7 +39,13 @@ func TestPanelSessionAndAllowlist(t *testing.T) {
 	}))
 	defer upstream.Close()
 	origin, _ := url.Parse(upstream.URL)
-	app := httptest.NewServer(newPanel(sha256.Sum256([]byte(password)), newKernel(origin, secret), http.NotFoundHandler()))
+	p := newPanel(sha256.Sum256([]byte(password)), newKernel(origin, secret), http.NotFoundHandler())
+	const tag = "server-v0.1.0-rc.4"
+	p.releaseDir = filepath.Join(t.TempDir(), tag+"-image")
+	if err := os.Mkdir(p.releaseDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	app := httptest.NewServer(p)
 	defer app.Close()
 	attempt := func(method, path, origin, body string, cookie *http.Cookie) *http.Response {
 		t.Helper()
@@ -74,6 +82,19 @@ func TestPanelSessionAndAllowlist(t *testing.T) {
 	if !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode {
 		t.Fatal("session cookie protection missing")
 	}
+	sessionInfo := func(tag string) {
+		t.Helper()
+		body := expect(attempt("GET", "/api/session", "", "", cookie), 200)
+		if !strings.Contains(body, "\"releaseTag\":\""+tag+"\"") {
+			t.Fatalf("session release tag: %s", body)
+		}
+	}
+	sessionInfo(tag)
+	const stable = "server-v0.1.0"
+	if err := os.WriteFile(filepath.Join(p.releaseDir, "release-tag"), []byte(stable+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sessionInfo(stable)
 	expect(attempt("GET", "/api/monitor/version?token=browser", "", "", cookie), 200)
 	expect(attempt("GET", "/api/monitor/configs", "", "", cookie), 404)
 	expect(attempt("PUT", "/api/monitor/configs", app.URL, "{}", cookie), 404)

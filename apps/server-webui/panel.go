@@ -26,6 +26,7 @@ type panel struct {
 	password          [32]byte
 	kernel            *kernel
 	static            http.Handler
+	releaseDir        string
 	baseConfig        string
 	manager           *manager
 	drafts            map[string]managedDraft
@@ -113,7 +114,10 @@ func (p *panel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/api/session" {
 		switch r.Method {
 		case http.MethodGet:
-			respond(w, http.StatusOK, map[string]bool{"authenticated": true})
+			respond(w, http.StatusOK, struct {
+				Authenticated bool   `json:"authenticated"`
+				ReleaseTag    string `json:"releaseTag,omitempty"`
+			}{true, deploymentTag(p.releaseDir)})
 		case http.MethodDelete:
 			p.mu.Lock()
 			delete(p.sessions, cookie.Value)

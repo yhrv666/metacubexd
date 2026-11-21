@@ -1,4 +1,22 @@
 <script setup lang="ts">
+import {
+  IconAlertTriangle,
+  IconCheck,
+  IconCloudDownload,
+  IconEye,
+  IconHistory,
+  IconLink,
+  IconListDetails,
+  IconPlus,
+  IconRefresh,
+  IconRocket,
+  IconRotateClockwise2,
+  IconSearch,
+  IconSettings,
+  IconShieldLock,
+  IconTrash,
+} from '@tabler/icons-vue'
+
 interface NodeChoice {
   name: string
   label: string
@@ -58,9 +76,9 @@ type SubscriptionAction =
   'import' | 'refresh' | 'remove' | 'node-add' | 'node-remove'
 
 const tabs = [
-  { id: 'subscriptions', label: '订阅与节点' },
-  { id: 'chains', label: '链式代理' },
-  { id: 'history', label: '版本记录' },
+  { id: 'subscriptions', label: '订阅与节点', icon: IconCloudDownload },
+  { id: 'chains', label: '链式代理', icon: IconLink },
+  { id: 'history', label: '版本记录', icon: IconHistory },
 ] as const
 const tab = ref<(typeof tabs)[number]['id']>('subscriptions')
 const state = ref<ManagedState>()
@@ -316,46 +334,96 @@ async function apply(action: 'publish' | 'rollback', id: string) {
 </script>
 
 <template>
-  <div class="mx-auto grid max-w-6xl gap-4">
-    <h1 class="text-2xl font-semibold">托管配置</h1>
-    <p v-if="state?.diagnostic" class="alert alert-warning" role="alert">
-      {{ state.diagnostic }}
-    </p>
-    <p v-else-if="state && !state.canPreview" class="alert">
-      当前实例以只读模式运行。
-    </p>
-    <p
+  <div class="mx-auto flex w-full max-w-6xl flex-col gap-6 pb-8">
+    <div
+      class="flex flex-wrap items-center justify-between gap-4 border-b border-base-content/10 pb-4"
+    >
+      <div class="flex flex-wrap items-center gap-3">
+        <h1 class="text-2xl font-bold tracking-tight">托管配置</h1>
+        <span
+          v-if="state"
+          class="badge gap-1.5 badge-sm"
+          :class="
+            state.writable
+              ? 'badge-soft badge-success'
+              : 'badge-soft badge-neutral'
+          "
+        >
+          <span
+            class="h-1.5 w-1.5 rounded-full"
+            :class="state.writable ? 'bg-success' : 'bg-base-content/50'"
+            aria-hidden="true"
+          />
+          {{ state.writable ? '可写入' : '只读' }}
+        </span>
+        <span
+          v-if="state?.version"
+          class="rounded-md bg-base-200 px-2 py-0.5 font-mono text-xs text-base-content/65"
+        >
+          {{ state.version.slice(0, 8) }}
+        </span>
+      </div>
+      <button
+        v-if="!state || failed"
+        type="button"
+        class="btn gap-1.5 btn-outline btn-sm"
+        :disabled="pending"
+        @click="loadState(true)"
+      >
+        <IconRefresh class="h-4 w-4" aria-hidden="true" />
+        重新读取托管状态
+      </button>
+    </div>
+
+    <div
+      v-if="state?.diagnostic"
+      class="alert rounded-xl alert-soft text-sm alert-warning"
+      role="alert"
+    >
+      <IconAlertTriangle class="h-4 w-4 shrink-0" aria-hidden="true" />
+      <span>{{ state.diagnostic }}</span>
+    </div>
+    <div
+      v-else-if="state && !state.canPreview"
+      class="alert rounded-xl border border-base-content/10 bg-base-200/70 text-sm"
+    >
+      <IconShieldLock class="h-4 w-4 shrink-0 opacity-70" aria-hidden="true" />
+      <span>当前实例以只读模式运行。</span>
+    </div>
+    <div
       v-if="notice"
       role="status"
-      class="alert"
+      class="alert rounded-xl alert-soft text-sm"
       :class="failed ? 'alert-error' : 'alert-success'"
     >
-      {{ notice }}
-    </p>
-    <button
-      v-if="!state || failed"
-      type="button"
-      class="btn w-fit btn-sm"
-      :disabled="pending"
-      @click="loadState(true)"
-    >
-      重新读取托管状态
-    </button>
+      <IconAlertTriangle
+        v-if="failed"
+        class="h-4 w-4 shrink-0"
+        aria-hidden="true"
+      />
+      <IconCheck v-else class="h-4 w-4 shrink-0" aria-hidden="true" />
+      <span>{{ notice }}</span>
+    </div>
 
     <template v-if="state?.canPreview || state?.version">
       <nav
-        class="flex flex-wrap gap-1 border-b border-base-300 pb-2"
+        class="inline-flex w-fit flex-wrap gap-1 rounded-xl border border-base-content/10 bg-base-200/70 p-1"
         aria-label="托管配置"
       >
         <button
           v-for="item in tabs"
           :key="item.id"
           type="button"
-          class="btn btn-ghost btn-sm"
-          :class="{ 'btn-active': tab === item.id }"
+          class="btn gap-1.5 rounded-lg btn-ghost px-3.5 font-medium btn-sm"
+          :class="
+            tab === item.id
+              ? 'bg-base-100 text-primary shadow-xs'
+              : 'text-base-content/70 hover:text-base-content'
+          "
           :aria-pressed="tab === item.id"
           @click="tab = item.id"
         >
+          <component :is="item.icon" class="h-4 w-4" aria-hidden="true" />
           {{ item.label }}
         </button>
       </nav>
@@ -363,75 +431,121 @@ async function apply(action: 'publish' | 'rollback', id: string) {
       <fieldset
         v-if="tab === 'subscriptions'"
         :disabled="pending || !state.writable"
-        class="grid gap-4"
+        class="grid items-start gap-6 lg:grid-cols-12"
       >
-        <form
-          class="flex flex-wrap items-end gap-2"
-          autocomplete="off"
-          @submit.prevent="
-            updateSubscription('import', '', { url: subscriptionURL.trim() })
-          "
-        >
-          <label class="grid max-w-xl min-w-52 flex-1 gap-1">
-            HTTPS 订阅链接
-            <input
-              v-model="subscriptionURL"
-              type="password"
-              class="input w-full"
-              required
-              placeholder="粘贴 Clash YAML 订阅链接"
-              autocomplete="off"
-            />
-          </label>
-          <button class="btn btn-primary" :disabled="!subscriptionURL.trim()">
-            导入订阅
-          </button>
-        </form>
-
-        <p v-if="!state.subscriptions?.length" class="text-sm opacity-70">
-          还没有导入订阅。
-        </p>
-        <ul v-else class="grid gap-2">
-          <li
-            v-for="item in state.subscriptions"
-            :key="item.id"
-            class="flex flex-wrap items-center gap-2 rounded-box border border-base-300 px-3 py-2"
-            :class="{ 'border-primary': editingSubscription === item.id }"
+        <div class="grid gap-5 lg:col-span-5">
+          <section
+            class="grid gap-4 rounded-2xl border border-base-content/10 bg-base-200/40 p-5"
           >
-            <div class="mr-auto min-w-36">
-              <strong>{{ item.id }}</strong>
-              <p class="text-xs opacity-70">
-                {{ item.nodes.length }} 个节点
-                <template v-if="item.refreshed">
-                  · {{ new Date(item.refreshed).toLocaleString() }}</template
-                >
-              </p>
+            <h2 class="text-base font-semibold">导入订阅</h2>
+            <form
+              class="grid gap-3"
+              autocomplete="off"
+              @submit.prevent="
+                updateSubscription('import', '', {
+                  url: subscriptionURL.trim(),
+                })
+              "
+            >
+              <label class="grid gap-1.5 text-sm font-medium">
+                <span>HTTPS 订阅链接</span>
+                <input
+                  v-model="subscriptionURL"
+                  type="password"
+                  class="input-bordered input w-full"
+                  required
+                  placeholder="粘贴 Clash YAML 订阅链接"
+                  autocomplete="off"
+                />
+              </label>
+              <button
+                class="btn w-full btn-primary sm:w-fit"
+                :disabled="!subscriptionURL.trim()"
+              >
+                <IconCloudDownload class="h-4 w-4" aria-hidden="true" />
+                导入订阅
+              </button>
+            </form>
+          </section>
+
+          <section
+            class="grid gap-3 rounded-2xl border border-base-content/10 bg-base-200/40 p-5"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <h2 class="text-base font-semibold">已导入订阅</h2>
+              <span class="text-xs text-base-content/55 tabular-nums">
+                {{ state.subscriptions?.length ?? 0 }}
+              </span>
             </div>
-            <button
-              type="button"
-              class="btn btn-sm"
-              :aria-expanded="editingSubscription === item.id"
-              @click="editNodes(item.id)"
+            <p
+              v-if="!state.subscriptions?.length"
+              class="rounded-xl border border-dashed border-base-content/12 py-6 text-center text-sm text-base-content/60"
             >
-              编辑节点
-            </button>
-            <button
-              type="button"
-              class="btn btn-ghost btn-sm"
-              @click="updateSubscription('refresh', item.id)"
-            >
-              刷新
-            </button>
-          </li>
-        </ul>
+              还没有导入订阅。
+            </p>
+            <ul v-else class="grid gap-2.5">
+              <li
+                v-for="item in state.subscriptions"
+                :key="item.id"
+                class="flex flex-wrap items-center gap-3 rounded-xl border border-base-content/10 bg-base-100 px-4 py-3 transition-colors"
+                :class="{
+                  'border-primary/60 bg-primary/5 ring-1 ring-primary/20':
+                    editingSubscription === item.id,
+                }"
+              >
+                <div class="mr-auto min-w-36">
+                  <strong class="block text-sm font-semibold">
+                    {{ item.id }}
+                  </strong>
+                  <p class="mt-0.5 text-xs text-base-content/60 tabular-nums">
+                    {{ item.nodes.length }} 个节点
+                    <template v-if="item.refreshed">
+                      · {{ new Date(item.refreshed).toLocaleString() }}
+                    </template>
+                  </p>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    class="btn btn-sm"
+                    :class="
+                      editingSubscription === item.id
+                        ? 'btn-soft btn-primary'
+                        : 'border-base-content/15 btn-outline'
+                    "
+                    :aria-expanded="editingSubscription === item.id"
+                    @click="editNodes(item.id)"
+                  >
+                    编辑节点
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    @click="updateSubscription('refresh', item.id)"
+                  >
+                    刷新
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </section>
+        </div>
 
         <section
           v-if="selectedSubscription"
-          class="grid gap-3 rounded-box border border-base-300 bg-base-200/60 p-4"
+          class="grid gap-4 rounded-2xl border border-base-content/10 bg-base-200/40 p-5 sm:p-6 lg:col-span-7"
         >
-          <h2 class="font-semibold">{{ selectedSubscription.id }} 的节点</h2>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-base font-semibold">
+              {{ selectedSubscription.id }} 的节点
+            </h2>
+            <span class="badge badge-ghost badge-sm tabular-nums">
+              {{ editedNodes.length }} 个节点
+            </span>
+          </div>
+
           <form
-            class="flex flex-wrap items-end gap-2"
+            class="flex flex-wrap items-end gap-3 rounded-xl border border-base-content/8 bg-base-100/80 p-4"
             autocomplete="off"
             @submit.prevent="
               updateSubscription('node-add', editingSubscription, {
@@ -439,45 +553,61 @@ async function apply(action: 'publish' | 'rollback', id: string) {
               })
             "
           >
-            <label class="grid max-w-xl min-w-52 flex-1 gap-1">
-              SOCKS5
+            <label class="grid min-w-52 flex-1 gap-1.5 text-sm font-medium">
+              <span>SOCKS5</span>
               <input
                 v-model="socks"
                 type="password"
-                class="input w-full"
+                class="input-bordered input w-full"
                 required
                 autocomplete="off"
                 placeholder="socks5://用户名:密码@主机:端口"
               />
             </label>
             <button class="btn btn-primary" :disabled="!socks.trim()">
+              <IconPlus class="h-4 w-4" aria-hidden="true" />
               添加节点
             </button>
           </form>
-          <input
-            v-model="nodeQuery"
-            type="search"
-            aria-label="搜索订阅节点"
-            class="input w-full max-w-xs input-sm"
-            placeholder="搜索订阅节点"
-          />
+
+          <div class="relative max-w-sm">
+            <IconSearch
+              class="pointer-events-none absolute top-1/2 left-3 z-10 h-4 w-4 -translate-y-1/2 text-base-content/45"
+              aria-hidden="true"
+            />
+            <input
+              v-model="nodeQuery"
+              type="search"
+              aria-label="搜索订阅节点"
+              class="input-bordered input w-full pl-9 input-sm"
+              placeholder="搜索订阅节点"
+            />
+          </div>
+
           <ul
-            class="max-h-72 divide-y divide-base-300 overflow-auto rounded-box bg-base-100"
+            class="max-h-96 divide-y divide-base-content/8 overflow-auto rounded-xl border border-base-content/10 bg-base-100"
           >
             <li
               v-for="node in editedNodes"
               :key="node.name"
-              class="flex min-h-10 items-center gap-2 px-3 py-1"
+              class="flex min-h-11 items-center gap-2.5 px-4 py-2 text-sm"
             >
-              <span class="mr-auto truncate" :title="node.label">{{
+              <span class="mr-auto truncate font-medium" :title="node.label">{{
                 node.label
               }}</span>
-              <span class="text-xs opacity-70">{{ node.type }}</span>
-              <span v-if="node.local" class="text-xs opacity-70">手动添加</span>
+              <span class="badge badge-ghost font-mono badge-xs uppercase">
+                {{ node.type }}
+              </span>
+              <span
+                v-if="node.local"
+                class="badge badge-soft badge-xs badge-primary"
+              >
+                手动添加
+              </span>
               <button
                 v-if="node.local"
                 type="button"
-                class="btn btn-ghost btn-xs"
+                class="btn btn-ghost text-base-content/65 btn-xs hover:text-error"
                 :aria-label="`删除 ${node.label}`"
                 @click="
                   updateSubscription('node-remove', editingSubscription, {
@@ -489,13 +619,24 @@ async function apply(action: 'publish' | 'rollback', id: string) {
               </button>
             </li>
           </ul>
-          <p v-if="!editedNodes.length" class="text-sm opacity-70">
+          <p
+            v-if="!editedNodes.length"
+            class="rounded-xl border border-dashed border-base-content/12 py-6 text-center text-sm text-base-content/60"
+          >
             没有匹配的节点。
           </p>
-          <details class="text-sm">
-            <summary class="cursor-pointer">订阅设置</summary>
+
+          <details
+            class="rounded-xl border border-base-content/10 bg-base-100/70 p-4 text-sm"
+          >
+            <summary
+              class="flex cursor-pointer items-center gap-2 font-medium select-none"
+            >
+              <IconSettings class="h-4 w-4 opacity-70" aria-hidden="true" />
+              <span>订阅设置</span>
+            </summary>
             <form
-              class="mt-2 flex flex-wrap items-end gap-2"
+              class="mt-4 flex flex-wrap items-end gap-3"
               autocomplete="off"
               @submit.prevent="
                 updateSubscription('import', editingSubscription, {
@@ -503,12 +644,12 @@ async function apply(action: 'publish' | 'rollback', id: string) {
                 })
               "
             >
-              <label class="grid max-w-xl min-w-52 flex-1 gap-1">
-                替换订阅链接
+              <label class="grid min-w-52 flex-1 gap-1.5 text-sm">
+                <span>替换订阅链接</span>
                 <input
                   v-model="replacementURL"
                   type="password"
-                  class="input w-full input-sm"
+                  class="input-bordered input w-full input-sm"
                   autocomplete="off"
                   required
                 />
@@ -518,13 +659,21 @@ async function apply(action: 'publish' | 'rollback', id: string) {
               </button>
               <button
                 type="button"
-                class="btn btn-ghost text-error btn-sm"
+                class="btn gap-1 btn-ghost text-error btn-sm"
                 @click="updateSubscription('remove', editingSubscription)"
               >
+                <IconTrash class="h-3.5 w-3.5" aria-hidden="true" />
                 删除订阅
               </button>
             </form>
           </details>
+        </section>
+
+        <section
+          v-else-if="state.subscriptions?.length"
+          class="flex min-h-56 items-center justify-center rounded-2xl border border-dashed border-base-content/15 bg-base-200/20 p-8 text-center text-sm text-base-content/60 lg:col-span-7"
+        >
+          点左侧订阅旁的「编辑节点」可查看节点列表或粘贴添加 SOCKS5 出口。
         </section>
       </fieldset>
 
@@ -533,37 +682,54 @@ async function apply(action: 'publish' | 'rollback', id: string) {
         autocomplete="off"
         @submit.prevent="submitPreview"
       >
-        <fieldset :disabled="pending" class="grid gap-4">
-          <div class="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              @click="addChain"
+        <fieldset :disabled="pending" class="grid gap-6">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                class="btn gap-1.5 btn-primary btn-sm"
+                @click="addChain"
+              >
+                <IconPlus class="h-4 w-4" aria-hidden="true" />
+                添加链路
+              </button>
+              <button
+                type="button"
+                class="btn gap-1.5 border-base-content/15 btn-outline btn-sm"
+                @click="tab = 'subscriptions'"
+              >
+                <IconListDetails class="h-4 w-4" aria-hidden="true" />
+                管理节点
+              </button>
+            </div>
+            <span
+              v-if="chains.length"
+              class="text-xs text-base-content/60 tabular-nums"
             >
-              添加链路
-            </button>
-            <button
-              type="button"
-              class="btn btn-ghost btn-sm"
-              @click="tab = 'subscriptions'"
-            >
-              管理节点
-            </button>
+              {{ chains.length }} 条链路 · {{ rules.length }} 条规则
+            </span>
           </div>
-          <p v-if="!chains.length" class="text-sm opacity-70">
+
+          <p
+            v-if="!chains.length"
+            class="rounded-2xl border border-dashed border-base-content/15 bg-base-200/25 px-6 py-10 text-center text-sm text-base-content/65"
+          >
             添加链路后，按入口到出口的顺序选择节点。
           </p>
+
           <section
             v-for="(chain, index) in chains"
             :key="chain.key"
-            class="grid gap-3 rounded-box border border-base-300 p-4"
+            class="grid gap-5 rounded-2xl border border-base-content/10 bg-base-200/35 p-5 sm:p-6"
           >
-            <div class="flex flex-wrap items-end gap-2">
-              <label class="mr-auto grid gap-1">
-                链路名称
+            <div
+              class="flex flex-wrap items-end gap-3 border-b border-base-content/8 pb-4"
+            >
+              <label class="mr-auto grid gap-1.5 text-sm font-medium">
+                <span>链路名称</span>
                 <input
                   v-model="chain.id"
-                  class="input input-sm"
+                  class="input-bordered input w-56 font-mono input-sm"
                   pattern="[a-zA-Z0-9][a-zA-Z0-9_\-]{0,47}"
                   required
                 />
@@ -578,25 +744,34 @@ async function apply(action: 'publish' | 'rollback', id: string) {
               </button>
               <button
                 type="button"
-                class="btn btn-ghost btn-sm"
+                class="btn gap-1 btn-ghost text-base-content/70 btn-sm hover:text-error"
                 @click="chains.splice(index, 1)"
               >
+                <IconTrash class="h-3.5 w-3.5" aria-hidden="true" />
                 删除链路
               </button>
             </div>
+
             <ManagedChainPicker
               v-if="chain.input === 'nodes'"
               v-model="chain.hops"
               :nodes="nodes"
             />
-            <div v-else class="grid gap-2 sm:grid-cols-2">
-              <label class="grid gap-1">
-                固定中转节点
-                <input v-model="chain.transit" class="input w-full" required />
+            <div v-else class="grid gap-4 sm:grid-cols-2">
+              <label class="grid gap-1.5 text-sm font-medium">
+                <span>固定中转节点</span>
+                <input
+                  v-model="chain.transit"
+                  class="input-bordered input w-full"
+                  required
+                />
               </label>
-              <label class="grid gap-1">
-                家宽录入
-                <select v-model="chain.input" class="select w-full">
+              <label class="grid gap-1.5 text-sm font-medium">
+                <span>家宽录入</span>
+                <select
+                  v-model="chain.input"
+                  class="select-bordered select w-full"
+                >
                   <option v-if="chain.saved" value="keep">
                     保留已保存的凭据
                   </option>
@@ -605,58 +780,76 @@ async function apply(action: 'publish' | 'rollback', id: string) {
                   <option value="nodes">从节点列表选择</option>
                 </select>
               </label>
-              <label v-if="chain.input === 'import'" class="grid gap-1">
-                代理字符串
+              <label
+                v-if="chain.input === 'import'"
+                class="grid gap-1.5 text-sm font-medium sm:col-span-2"
+              >
+                <span>代理字符串</span>
                 <input
                   v-model="chain.import"
-                  class="input w-full"
+                  class="input-bordered input w-full"
                   type="password"
                   required
                 />
               </label>
               <template v-if="chain.input === 'fields'">
-                <label class="grid gap-1">
-                  协议
-                  <select v-model="chain.type" class="select w-full">
+                <label class="grid gap-1.5 text-sm font-medium">
+                  <span>协议</span>
+                  <select
+                    v-model="chain.type"
+                    class="select-bordered select w-full"
+                  >
                     <option>socks5</option>
                     <option>http</option>
                     <option>https</option>
                   </select>
                 </label>
-                <label class="grid gap-1"
-                  >主机<input
+                <label class="grid gap-1.5 text-sm font-medium">
+                  <span>主机</span>
+                  <input
                     v-model="chain.host"
-                    class="input w-full"
+                    class="input-bordered input w-full"
                     required
-                /></label>
-                <label class="grid gap-1"
-                  >端口<input
+                  />
+                </label>
+                <label class="grid gap-1.5 text-sm font-medium">
+                  <span>端口</span>
+                  <input
                     v-model.number="chain.port"
-                    class="input w-full"
+                    class="input-bordered input w-full"
                     type="number"
                     min="1"
                     max="65535"
                     required
-                /></label>
-                <label class="grid gap-1"
-                  >用户名<input v-model="chain.username" class="input w-full"
-                /></label>
-                <label class="grid gap-1"
-                  >密码<input
+                  />
+                </label>
+                <label class="grid gap-1.5 text-sm font-medium">
+                  <span>用户名</span>
+                  <input
+                    v-model="chain.username"
+                    class="input-bordered input w-full"
+                  />
+                </label>
+                <label class="grid gap-1.5 text-sm font-medium">
+                  <span>密码</span>
+                  <input
                     v-model="chain.password"
-                    class="input w-full"
+                    class="input-bordered input w-full"
                     type="password"
-                /></label>
+                  />
+                </label>
               </template>
             </div>
           </section>
 
-          <section class="grid gap-3">
+          <section
+            class="grid gap-4 rounded-2xl border border-base-content/10 bg-base-200/35 p-5 sm:p-6"
+          >
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <h2 class="text-lg font-semibold">域名和来源规则</h2>
+              <h2 class="text-base font-semibold">域名和来源规则</h2>
               <button
                 type="button"
-                class="btn btn-sm"
+                class="btn gap-1.5 border-base-content/15 btn-outline btn-sm"
                 :disabled="!chains.length"
                 @click="
                   rules.push({
@@ -667,17 +860,28 @@ async function apply(action: 'publish' | 'rollback', id: string) {
                   })
                 "
               >
+                <IconPlus class="h-4 w-4" aria-hidden="true" />
                 添加规则
               </button>
             </div>
+            <p
+              v-if="!rules.length"
+              class="rounded-xl border border-dashed border-base-content/12 py-6 text-center text-sm text-base-content/60"
+            >
+              暂未配置分流规则。
+            </p>
             <fieldset
               v-for="(rule, index) in rules"
               :key="index"
-              class="grid gap-3 rounded-box border border-base-300 bg-base-200/60 p-4 sm:grid-cols-2"
+              class="grid gap-4 rounded-xl border border-base-content/10 bg-base-100 p-4 sm:grid-cols-2 sm:p-5"
             >
-              <label class="grid gap-1">
-                目标链路
-                <select v-model="rule.chain" class="select w-full" required>
+              <label class="grid gap-1.5 text-sm font-medium">
+                <span>目标链路</span>
+                <select
+                  v-model="rule.chain"
+                  class="select-bordered select w-full"
+                  required
+                >
                   <option disabled value="">选择链路</option>
                   <option
                     v-for="chain in chains"
@@ -688,131 +892,176 @@ async function apply(action: 'publish' | 'rollback', id: string) {
                   </option>
                 </select>
               </label>
-              <div class="flex flex-wrap items-end gap-4 pb-2">
+              <div class="flex flex-wrap items-end gap-3">
                 <label
-                  ><input
+                  class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-base-content/10 bg-base-200/50 px-3.5 py-2.5 text-sm transition-colors hover:border-primary/40"
+                >
+                  <input
                     v-model="rule.presets"
                     type="checkbox"
-                    class="checkbox checkbox-sm align-middle"
+                    class="checkbox checkbox-sm checkbox-primary"
                     value="openai"
                   />
-                  OpenAI</label
-                >
+                  <span>OpenAI</span>
+                </label>
                 <label
-                  ><input
+                  class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-base-content/10 bg-base-200/50 px-3.5 py-2.5 text-sm transition-colors hover:border-primary/40"
+                >
+                  <input
                     v-model="rule.presets"
                     type="checkbox"
-                    class="checkbox checkbox-sm align-middle"
+                    class="checkbox checkbox-sm checkbox-primary"
                     value="antigravity"
                   />
-                  Antigravity</label
-                >
+                  <span>Antigravity</span>
+                </label>
               </div>
-              <label class="grid gap-1"
-                >域名后缀<input
+              <label class="grid gap-1.5 text-sm font-medium">
+                <span>域名后缀</span>
+                <input
                   v-model="rule.domains"
-                  class="input w-full"
+                  class="input-bordered input w-full"
                   placeholder="example.com example.org"
-              /></label>
-              <label class="grid gap-1"
-                >来源网段<input
+                />
+              </label>
+              <label class="grid gap-1.5 text-sm font-medium">
+                <span>来源网段</span>
+                <input
                   v-model="rule.sources"
-                  class="input w-full"
+                  class="input-bordered input w-full"
                   placeholder="192.0.2.0/24"
-              /></label>
-              <button
-                type="button"
-                class="btn w-fit btn-ghost btn-sm"
-                @click="rules.splice(index, 1)"
-              >
-                删除规则
-              </button>
+                />
+              </label>
+              <div class="flex justify-end sm:col-span-2">
+                <button
+                  type="button"
+                  class="btn gap-1 btn-ghost text-base-content/70 btn-sm hover:text-error"
+                  @click="rules.splice(index, 1)"
+                >
+                  <IconTrash class="h-3.5 w-3.5" aria-hidden="true" />
+                  删除规则
+                </button>
+              </div>
             </fieldset>
           </section>
-          <div class="flex flex-wrap gap-2">
-            <button
-              class="btn btn-primary"
-              :disabled="
-                chains.some(
-                  (chain) => chain.input === 'nodes' && chain.hops.length < 2,
-                )
-              "
-            >
-              脱敏预览
-            </button>
-            <button
-              v-if="draft && state.writable"
-              type="button"
-              class="btn btn-warning"
-              @click="apply('publish', draft)"
-            >
-              发布预览
-            </button>
-          </div>
-          <ul
-            v-if="preview.length"
-            class="grid gap-2 rounded-box border border-base-300 p-4"
+
+          <section
+            class="grid gap-4 rounded-2xl border border-base-content/10 bg-base-200/50 p-5"
           >
-            <li v-for="chain in preview" :key="chain.id">
-              <strong>{{ chain.id }}</strong>
-              <span v-if="chain.hops">
-                ·
-                {{
-                  chain.hops
-                    .map((hop) => nodeLabels.get(hop) ?? hop)
-                    .join(' → ')
-                }}</span
+            <div class="flex flex-wrap items-center gap-3">
+              <button
+                class="btn gap-1.5 btn-primary"
+                :disabled="
+                  chains.some(
+                    (chain) => chain.input === 'nodes' && chain.hops.length < 2,
+                  )
+                "
               >
-              <span v-else>
-                · {{ chain.transit }} → {{ chain.type }} ·
-                {{ chain.authenticated ? '需认证' : '无需认证' }}</span
+                <IconEye class="h-4 w-4" aria-hidden="true" />
+                脱敏预览
+              </button>
+              <button
+                v-if="draft && state.writable"
+                type="button"
+                class="btn gap-1.5 btn-warning"
+                @click="apply('publish', draft)"
               >
-            </li>
-          </ul>
+                <IconRocket class="h-4 w-4" aria-hidden="true" />
+                发布预览
+              </button>
+            </div>
+            <ul
+              v-if="preview.length"
+              class="grid gap-2.5 border-t border-base-content/10 pt-4"
+            >
+              <li
+                v-for="chain in preview"
+                :key="chain.id"
+                class="flex flex-wrap items-center gap-2 rounded-xl border border-base-content/10 bg-base-100 px-4 py-3 text-sm"
+              >
+                <strong class="font-mono text-primary">{{ chain.id }}</strong>
+                <span v-if="chain.hops" class="text-base-content/85">
+                  ·
+                  {{
+                    chain.hops
+                      .map((hop) => nodeLabels.get(hop) ?? hop)
+                      .join(' → ')
+                  }}
+                </span>
+                <span v-else class="text-base-content/85">
+                  · {{ chain.transit }} → {{ chain.type }} ·
+                  {{ chain.authenticated ? '需认证' : '无需认证' }}
+                </span>
+              </li>
+            </ul>
+          </section>
         </fieldset>
       </form>
 
-      <section v-if="tab === 'history'" class="grid gap-4">
-        <p v-if="!state.history?.length" class="text-sm opacity-70">
-          暂无可回滚版本。
-        </p>
-        <div v-else class="flex flex-wrap items-end gap-2">
-          <label class="grid gap-1">
-            回滚版本
-            <select
-              v-model="rollbackTarget"
-              class="select w-full"
-              :disabled="pending || !state.writable"
+      <section v-if="tab === 'history'" class="grid gap-6">
+        <div
+          class="grid gap-4 rounded-2xl border border-base-content/10 bg-base-200/40 p-5 sm:p-6"
+        >
+          <h2 class="text-base font-semibold">配置回滚</h2>
+          <p v-if="!state.history?.length" class="text-sm text-base-content/60">
+            暂无可回滚版本。
+          </p>
+          <div v-else class="flex flex-wrap items-end gap-3">
+            <label
+              class="grid max-w-md min-w-64 flex-1 gap-1.5 text-sm font-medium"
             >
-              <option disabled value="">选择历史版本</option>
-              <option
-                v-for="item in state.history"
-                :key="item.id"
-                :value="item.id"
+              <span>回滚版本</span>
+              <select
+                v-model="rollbackTarget"
+                class="select-bordered select w-full"
+                :disabled="pending || !state.writable"
               >
-                {{ new Date(item.created).toLocaleString() }} ·
-                {{ item.id.slice(0, 8) }}
-              </option>
-            </select>
-          </label>
-          <button
-            type="button"
-            class="btn"
-            :disabled="!state.writable || pending || !rollbackTarget"
-            @click="apply('rollback', rollbackTarget)"
-          >
-            回滚并验证
-          </button>
+                <option disabled value="">选择历史版本</option>
+                <option
+                  v-for="item in state.history"
+                  :key="item.id"
+                  :value="item.id"
+                >
+                  {{ new Date(item.created).toLocaleString() }} ·
+                  {{ item.id.slice(0, 8) }}
+                </option>
+              </select>
+            </label>
+            <button
+              type="button"
+              class="btn gap-1.5 btn-outline"
+              :disabled="!state.writable || pending || !rollbackTarget"
+              @click="apply('rollback', rollbackTarget)"
+            >
+              <IconRotateClockwise2 class="h-4 w-4" aria-hidden="true" />
+              回滚并验证
+            </button>
+          </div>
         </div>
+
         <details
           v-if="state.audit?.length"
-          class="rounded-box border border-base-300 p-3"
+          open
+          class="rounded-2xl border border-base-content/10 bg-base-200/40 p-5 sm:p-6"
         >
-          <summary>最近操作记录</summary>
-          <ul class="grid gap-2 pt-2 text-sm">
-            <li v-for="event in [...state.audit].reverse()" :key="event.Time">
-              {{ new Date(event.Time).toLocaleString() }} · {{ event.Action }} ·
-              {{ event.Result }}
+          <summary class="cursor-pointer text-base font-semibold select-none">
+            最近操作记录
+          </summary>
+          <ul
+            class="mt-4 divide-y divide-base-content/8 overflow-hidden rounded-xl border border-base-content/10 bg-base-100 text-sm"
+          >
+            <li
+              v-for="event in [...state.audit].reverse()"
+              :key="event.Time"
+              class="flex flex-wrap items-center gap-3 px-4 py-2.5"
+            >
+              <span class="font-mono text-xs text-base-content/55 tabular-nums">
+                {{ new Date(event.Time).toLocaleString() }}
+              </span>
+              <span class="badge badge-ghost font-mono badge-sm">
+                {{ event.Action }}
+              </span>
+              <span class="text-base-content/85">{{ event.Result }}</span>
             </li>
           </ul>
         </details>

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -132,6 +133,7 @@ func serveBrowserPanel(t *testing.T, listen string) {
 		t.Fatal(err)
 	}
 	p := newPanel(sha256.Sum256([]byte("synthetic-admin-fixture")), newKernel(controller, "synthetic-controller-fixture"), http.FileServerFS(web))
+	p.releaseDir = filepath.Dir(os.Args[0])
 	p.manager, p.baseConfig = m, m.config
 	p.fetchSubscription = func(context.Context, string) ([]byte, error) {
 		return []byte("proxies:\n  - {name: relay, type: socks5, server: relay.example, port: 1080}\n"), nil

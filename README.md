@@ -1,588 +1,161 @@
-<div align="center">
+# MetaCubeXD 服务器版
 
-# metacubexd
+这是 [MetaCubeXD](https://github.com/MetaCubeX/metacubexd) 的服务器版 fork。它用一个嵌入网页的 Go 程序连接现有 Mihomo，在 Linux 主机上通过 SSH 隧道管理。桌面端、静态面板和 All-in-One 安装见[上游项目](https://github.com/MetaCubeX/metacubexd)。
 
-**Mihomo Dashboard, The Official One, XD**
+## 已实现的功能
 
-A modern, beautiful, and fully-featured web dashboard for [Mihomo](https://github.com/MetaCubeX/mihomo) (Clash Meta).
+- 实时查看流量、连接、规则和 Mihomo 日志。右上角显示内核版本和已部署的服务器 Release tag。
+- 导入 HTTPS Clash YAML 订阅，粘贴添加 SOCKS5 节点，刷新订阅时保留手动节点。
+- 按入口到出口选择 2 到 8 个节点并调整顺序，按域名、来源 CIDR 或 OpenAI、Antigravity 预设分流。
+- 配置发布支持脱敏预览、隔离校验、热加载、运行态验证、失败回滚、历史和审计。
+- GitHub Actions 发布 Linux amd64、arm64 二进制包和镜像。主机可用 systemd 定时拉取、校验、切换和回滚面板版本。
 
-[![stars](https://img.shields.io/github/stars/metacubex/metacubexd?style=for-the-badge&color=orange)](https://github.com/metacubex/metacubexd/stargazers)
-[![downloads](https://img.shields.io/github/downloads/metacubex/metacubexd/total?style=for-the-badge)](https://github.com/metacubex/metacubexd/releases)
-[![build](https://img.shields.io/github/actions/workflow/status/metacubex/metacubexd/release.yml?style=for-the-badge)](https://github.com/metacubex/metacubexd/actions)
-[![license](https://img.shields.io/github/license/metacubex/metacubexd?style=for-the-badge)](./LICENSE)
-[![pr-closed](https://img.shields.io/github/issues-pr-closed/metacubex/metacubexd?style=for-the-badge)](https://github.com/metacubex/metacubexd/pulls)
-[![last-commit](https://img.shields.io/github/last-commit/metacubex/metacubexd?style=for-the-badge)](https://github.com/metacubex/metacubexd/commits)
+首次仅指定密码和控制器地址时会先以只读启动。完成一次[写入模式](#写入模式)配置后，面板默认保持可写，后续重启和 CI/CD 自动更新都会自动沿用可写状态，需要临时停用写入时可执行 `--mode read-only`。
 
-**[Live Demo](https://d.metacubex.one)** · **[Download Desktop App](https://github.com/metacubex/metacubexd/releases/latest)** · **[Docker Quick Start](#3-all-in-one-server-docker)**
+## 快速启动
 
-</div>
+从[本仓库 Releases](https://github.com/yhrv666/metacubexd/releases)选一个 `server-v*`，下载对应架构的 `metacubexd-server-linux-amd64.tar.gz` 或 `metacubexd-server-linux-arm64.tar.gz`，以及 `SHA256SUMS`。以下以 amd64 为例。请在下载目录执行，并使用面板所在主机能访问的控制器地址。
 
----
+```bash
+archive=metacubexd-server-linux-amd64.tar.gz
+awk -v name="$archive" '$2 == name' SHA256SUMS | sha256sum --strict -c - || exit 1
+tar -xzf "$archive"
 
-## ⚡ Quick Start
-
-**Just want to try it?** Open **https://d.metacubex.one** and enter your mihomo address + secret.
-
-**Self-host with Docker in 30 seconds:**
-
-```shell
-docker run -d --name metacubexd -p 8080:80 ghcr.io/metacubex/metacubexd:latest
-# Open http://localhost:8080
+umask 077
+read -rsp '面板密码（至少 16 字符）: ' panel_password
+echo
+printf '%s\n' "$panel_password" > admin
+chmod 0600 admin
+unset panel_password
+./metacubexd-server -admin-file "$PWD/admin" -controller http://127.0.0.1:9090
 ```
 
-**Full all-in-one (UI + kernel + agent):**
+如果 Mihomo 控制器配置了 `secret`，把它存到权限为 `0600` 的文件，并添加 `-controller-secret-file /绝对路径/controller`。从自己的电脑建立 SSH 隧道，然后打开 `http://127.0.0.1:18443`。
 
-```shell
-curl -O https://raw.githubusercontent.com/metacubex/metacubexd/main/docs/docker-compose.yml
-# Edit .env with your secrets, then:
-docker compose up -d
+```bash
+ssh -N -L 18443:127.0.0.1:18443 user@your-server
 ```
 
----
+从源码启动时，先在仓库根目录构建，然后使用相同的密码文件和启动参数。工具版本见 [Server CI](.github/workflows/server-ci.yml)。
 
-## ✨ Features
-
-- 📊 Real-time traffic monitoring and statistics
-- 🔄 Proxy group management with latency testing
-- 📡 Connection tracking and management
-- 📋 Rule viewer with search functionality
-- 📝 Live log streaming
-- 🎨 32 selectable themes with user color overrides
-- 📱 Fully responsive design for mobile devices
-- 🌐 Seven languages: English, 简体中文, Русский, 日本語, 한국어, Français, فارسی
-- 🖥️ Cross-platform desktop app with bundled kernel
-- 🐳 All-in-one Docker server with built-in agent
-
-## 🖼️ Preview
-
-<details>
-<summary><b>Desktop Screenshots</b></summary>
-
-|                           Overview                            |                           Proxies                           |
-| :-----------------------------------------------------------: | :---------------------------------------------------------: |
-| <img src="docs/pc/overview.png" alt="overview" width="400" /> | <img src="docs/pc/proxies.png" alt="proxies" width="400" /> |
-
-|                             Connections                             |                          Rules                          |
-| :-----------------------------------------------------------------: | :-----------------------------------------------------: |
-| <img src="docs/pc/connections.png" alt="connections" width="400" /> | <img src="docs/pc/rules.png" alt="rules" width="400" /> |
-
-|                         Logs                          |                          Config                           |
-| :---------------------------------------------------: | :-------------------------------------------------------: |
-| <img src="docs/pc/logs.png" alt="logs" width="400" /> | <img src="docs/pc/config.png" alt="config" width="400" /> |
-
-</details>
-
-<details>
-<summary><b>Mobile Screenshots</b></summary>
-
-|                             Overview                              |                             Proxies                             |                               Connections                               |
-| :---------------------------------------------------------------: | :-------------------------------------------------------------: | :---------------------------------------------------------------------: |
-| <img src="docs/mobile/overview.png" alt="overview" width="200" /> | <img src="docs/mobile/proxies.png" alt="proxies" width="200" /> | <img src="docs/mobile/connections.png" alt="connections" width="200" /> |
-
-|                            Rules                            |                           Logs                            |                            Config                             |
-| :---------------------------------------------------------: | :-------------------------------------------------------: | :-----------------------------------------------------------: |
-| <img src="docs/mobile/rules.png" alt="rules" width="200" /> | <img src="docs/mobile/logs.png" alt="logs" width="200" /> | <img src="docs/mobile/config.png" alt="config" width="200" /> |
-
-</details>
-
-## 🔗 Official Sites
-
-Use one of these official hosted-panel deployments:
-
-| Site             | URL                                    |
-| :--------------- | :------------------------------------- |
-| Primary          | https://d.metacubex.one                |
-| GitHub Pages     | https://metacubex.github.io/metacubexd |
-| Cloudflare Pages | https://metacubexd.pages.dev           |
-
-## 🚀 Deployment
-
-metacubexd ships in **three forms from one codebase**:
-
-| Form                       | Who hosts the UI                                                | Who runs the kernel                 | Best for                                 |
-| :------------------------- | :-------------------------------------------------------------- | :---------------------------------- | :--------------------------------------- |
-| **Hosted panel** (classic) | official sites, static files, or the standalone panel container | your own remote mihomo              | pointing a browser at an existing mihomo |
-| **Desktop app**            | the app (bundled)                                               | the app supervises a bundled mihomo | a managed runtime on one machine         |
-| **All-in-one server**      | the Docker image                                                | the container's bundled mihomo      | a router / NAS / VPS                     |
-
-> The classic **pure-panel mode still works against any remote mihomo** — the
-> kernel-control and profile features simply stay hidden when the dashboard
-> isn't talking to a bundled agent.
-
-### 1. Hosted Panel (point at your own mihomo)
-
-Enable and protect the external controller in your mihomo `config.yaml`:
-
-```yaml
-external-controller: 0.0.0.0:9090
-secret: 'replace-with-a-strong-secret'
+```bash
+pnpm install --frozen-lockfile --filter @metacubexd/ui...
+node apps/server-webui/build-ui.mjs
+go -C apps/server-webui build -o metacubexd-server .
+# 二进制在 apps/server-webui/metacubexd-server
 ```
 
-Binding to `0.0.0.0` exposes the controller on every interface. Restrict it
-with a firewall, use a strong secret, and configure
-[`external-controller-cors`](#unable-to-connect-to-backend-when-self-hosting-cors)
-for the exact dashboard origin.
+## 用 systemd 常驻
 
-Then open one of the official hosted sites listed above and enter your mihomo
-`{url, secret}`, or self-host the static assets via `external-ui`:
+在已校验的发布包解压目录执行。把 `tag` 改成实际下载的 tag。下面的命令用于首次安装，请先退出前台进程以释放端口。
 
-```shell
-# Clone the prebuilt gh-pages branch
-git clone https://github.com/metacubex/metacubexd.git -b gh-pages /etc/mihomo/ui
+```bash
+tag=server-v0.1.0-rc.N
+units=apps/server-webui/units
+root=/opt/metacubexd-server
 
-# Set external-ui in your config:
-#   external-ui: /etc/mihomo/ui
-
-# Update to the latest build later:
-git -C /etc/mihomo/ui pull -r
+getent passwd metacubexd >/dev/null ||
+  sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin metacubexd
+sudo install -d -m 0750 -o root -g metacubexd /etc/metacubexd-server
+sudo install -m 0600 -o metacubexd -g metacubexd admin /etc/metacubexd-server/admin
+sudo install -D -m 0755 metacubexd-server "$root/$tag/metacubexd-server"
+sudo ln -sT "$root/$tag" "$root/current"
+sudo install -m 0644 "$units/metacubexd-server.service" "$units/metacubexd-validator.service" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now metacubexd-server.service
+systemctl status metacubexd-server.service
 ```
 
-#### Standalone hosted-panel container
+默认控制器为 `http://127.0.0.1:9090`。如果需要密钥，像安装 `admin` 一样安装 `controller` 文件。通过 `sudo systemctl edit metacubexd-server.service` 修改连接。无需密钥的实例可省略最后一个参数。保存后执行 `sudo systemctl restart metacubexd-server.service`。
 
-**`ghcr.io/metacubex/metacubexd`** is another distribution of the hosted-panel
-architecture: it serves only the dashboard over HTTP on port `80`; it does not
-bundle or supervise mihomo. Point it at a mihomo instance you run separately.
-One panel can manage several backends, and HTTP hosting avoids the browser's
-HTTPS-to-HTTP mixed-content block when the backend is local.
-
-```shell
-docker run -d --name metacubexd -p 127.0.0.1:8080:80 \
-  ghcr.io/metacubex/metacubexd:latest
+```ini
+[Service]
+ExecStart=
+ExecStart=/opt/metacubexd-server/current/metacubexd-server -listen 127.0.0.1:18443 -admin-file /etc/metacubexd-server/admin -controller http://127.0.0.1:9090 -controller-secret-file /etc/metacubexd-server/controller
 ```
 
-##### Pre-fill the backend address
+## 写入模式
 
-Set `DEFAULT_BACKEND_URL` to pre-populate the connect form (and skip the
-"no backend detected" prompt on first load). The container's entrypoint maps it
-to the Nuxt runtime config, so it ships in every served HTML response without
-rebuilding the image:
+首次启用写入时需要启动配置、内核资源目录和运行态探针。按[配置写入指南](docs/server-webui.zh-CN.md#准备写入模式)准备权限、探针和备份，并暂停其他配置写入入口。使用包含此功能的面板和更新脚本即可切换模式，定时拉取可独立启用。
 
-```shell
-docker run -d --name metacubexd -p 127.0.0.1:8080:80 \
-  -e DEFAULT_BACKEND_URL=http://192.168.1.10:9090 \
-  ghcr.io/metacubex/metacubexd:latest
+裸金属 Mihomo 使用实际安装的可执行文件、启动配置和资源目录。
+
+```bash
+sudo /usr/local/libexec/metacubexd-image-update.py --mode writable \
+  --kernel-binary /usr/local/bin/mihomo \
+  --config /etc/mihomo/config.yaml --kernel-home /etc/mihomo \
+  --probe-file /etc/metacubexd-server/probes.json
 ```
 
-The URL is only a default — users can still edit it on the connect screen, and
-saved endpoints take precedence on later visits.
+Docker 中的 Mihomo 使用容器名和容器内路径。脚本读取运行中容器的镜像 ID、入口和挂载关系，并将容器内的配置路径映射到宿主机。配置需在可写的宿主机**目录绑定挂载**内，才能原子替换。容器采用启动包装器时可传 `--docker-entrypoint /容器内/mihomo`。
 
-For a safe starting point for the separately managed kernel, see the
-[minimal Mihomo configuration example](./docs/config.yaml). Review its network
-settings before making the controller available outside the local machine.
-
-### 2. Desktop App
-
-Download the installer for your platform from the
-[latest release](https://github.com/metacubex/metacubexd/releases/latest):
-
-| OS                    | Arch  | File                                         |
-| :-------------------- | :---- | :------------------------------------------- |
-| macOS (Apple Silicon) | arm64 | `MetaCubeXD-<version>-mac-arm64.dmg`         |
-| macOS (Intel)         | x64   | `MetaCubeXD-<version>-mac-x64.dmg`           |
-| Windows               | x64   | `MetaCubeXD-<version>-win-x64.exe`           |
-| Windows               | arm64 | `MetaCubeXD-<version>-win-arm64.exe`         |
-| Debian / Ubuntu       | x64   | `MetaCubeXD-<version>-linux-amd64.deb`       |
-| Debian / Ubuntu       | arm64 | `MetaCubeXD-<version>-linux-arm64.deb`       |
-| Fedora / RHEL / SUSE  | x64   | `MetaCubeXD-<version>-linux-x86_64.rpm`      |
-| Fedora / RHEL / SUSE  | arm64 | `MetaCubeXD-<version>-linux-aarch64.rpm`     |
-| Arch Linux            | x64   | `MetaCubeXD-<version>-linux-x64.pacman`      |
-| Arch Linux            | arm64 | `MetaCubeXD-<version>-linux-aarch64.pacman`  |
-| Other Linux           | x64   | `MetaCubeXD-<version>-linux-x86_64.AppImage` |
-| Other Linux           | arm64 | `MetaCubeXD-<version>-linux-arm64.AppImage`  |
-
-The desktop app **bundles its own mihomo kernel and auto-configures the local
-endpoint** — you don't enter any address. Manage profiles, edit configs, and
-start/stop the kernel directly inside the app.
-
-> **These builds are unsigned.** Download them only from this repository's
-> [official GitHub releases](https://github.com/metacubex/metacubexd/releases),
-> verify that the URL and release tag are correct, and decide whether you trust
-> the artifact before bypassing an OS warning. The project does not currently
-> provide publisher identity verification through code signing.
-
-**macOS** — Gatekeeper blocks unsigned apps ("MetaCubeXD is damaged and can't
-be opened"). After dragging the app to `/Applications`, strip the quarantine
-attribute:
-
-```shell
-xattr -dr com.apple.quarantine /Applications/MetaCubeXD.app
+```bash
+sudo /usr/local/libexec/metacubexd-image-update.py --mode writable \
+  --container mihomo \
+  --config /root/.config/mihomo/config.yaml --kernel-home /root/.config/mihomo \
+  --probe-file /etc/metacubexd-server/probes.json
 ```
 
-…or right-click the app → **Open** → **Open** in the confirmation dialog.
+首次成功开启写入后，可以复用已保存的设置。切回只读会关闭网页发布入口，已生效的 Mihomo 配置继续运行。脚本会重启面板，浏览器可能需要重新登录。
 
-MetaCubeXD can also be installed through the Homebrew cask in this repository:
-
-```shell
-brew tap metacubex/metacubexd https://github.com/MetaCubeX/metacubexd.git
-brew install --cask metacubexd
+```bash
+sudo /usr/local/libexec/metacubexd-image-update.py --mode status
+sudo /usr/local/libexec/metacubexd-image-update.py --mode read-only
+sudo /usr/local/libexec/metacubexd-image-update.py --mode writable
 ```
 
-**Windows** — SmartScreen shows "Windows protected your PC". Click
-**More info** → **Run anyway**.
+## 安装 CD 脚本
 
-**Linux** — install the native package for your distribution, or make the
-AppImage executable and run it:
+在发布包解压目录执行。脚本需要 Linux、Python 3.10+ 和 systemd。拉取镜像需要主机可用的 Docker 服务。切换写入还会用到 `curl` 和 `runuser`。
 
-```shell
-# Debian / Ubuntu
-sudo apt install ./MetaCubeXD-*-linux-*.deb
+```bash
+units=apps/server-webui/units
+sudo install -D -m 0755 "$units/metacubexd-image-update.py" /usr/local/libexec/metacubexd-image-update.py
+sudo install -m 0644 "$units/metacubexd-image-update.service" "$units/metacubexd-image-update.timer" /etc/systemd/system/
+sudo systemctl daemon-reload
 
-# Fedora / RHEL
-sudo dnf install ./MetaCubeXD-*-linux-*.rpm
-
-# openSUSE
-sudo zypper install ./MetaCubeXD-*-linux-*.rpm
-
-# Arch Linux and derivatives
-sudo pacman -U ./MetaCubeXD-*-linux-*.pacman
-
-# Distribution-independent AppImage
-chmod +x MetaCubeXD-*-linux-*.AppImage
-./MetaCubeXD-*-linux-*.AppImage
+sudo /usr/local/libexec/metacubexd-image-update.py --check
+sudo systemctl enable --now metacubexd-image-update.timer
+systemctl list-timers metacubexd-image-update.timer
+sudo /usr/local/libexec/metacubexd-image-update.py --logs
 ```
 
-> **System proxy and TUN are separate features.** System proxy changes the
-> current user's OS proxy settings through platform tools and does not install
-> the privileged helper; platform policy may still request authorization. TUN
-> routes machine traffic at the network layer and requires the one-time helper
-> installation described in [TUN mode (desktop)](#tun-mode-desktop).
+定时器约每 10 分钟检查一次。更新器按摘要拉取 GHCR 镜像，失败后下载并校验 Release 镜像归档。它提取面板二进制并切换 `current`。面板登录、控制器或写入模式检查失败时会回退。立即检查并应用更新可用 `sudo systemctl start metacubexd-image-update.service`。暂停定时检查用 `sudo systemctl disable --now metacubexd-image-update.timer`。
 
-#### TUN mode (desktop)
+先确认 `main` 上对应提交的 Server CI 和打包产物可用，再推送带注释的 tag。以下为候选版示例，请替换实际提交和编号。
 
-**TUN routes traffic at the network layer**, including applications that do not
-honor per-app proxy settings (unlike the mixed proxy port, which only catches
-apps you point at it). Because system-level routing needs root/admin, the
-desktop app installs a small **privileged helper** the first time you enable
-TUN — a background service that performs the privileged network setup on the
-app's behalf. Enabling TUN therefore prompts for **administrator authorization**
-the first time (the OS elevation dialog). Activate a profile before enabling
-TUN. The helper persists across sessions, so later enables normally reuse it.
-
-The app waits briefly for the helper to become ready. If an existing helper
-cannot be reached or uses an incompatible protocol, the app attempts one repair;
-this can request administrator authorization again. If activation fails, the
-app removes the TUN settings and attempts to restart the normal proxy backend.
-
-> The helper is installed by an unsigned app. Confirm that you downloaded the
-> app from the official release page before approving its administrator prompt.
-
-**Per-OS notes**
-
-- **macOS** — the helper is registered as a root **LaunchDaemon**; you approve
-  it through the standard `osascript` "wants to make changes" administrator
-  prompt. The kernel binds the system's `utun` interface.
-- **Windows** — the helper runs as the auto-start **`metacubexd-helper` Windows
-  service**, installed through a UAC prompt. Stopping the service also stops its
-  helper and kernel processes. The build ships **`wintun.dll`** alongside the
-  kernel, which mihomo's wintun backend needs — no separate download.
-- **Linux** — the helper is registered as a root **systemd** unit; the elevation
-  prompt is **`pkexec`** (the GNOME/PolicyKit authorization dialog). On a headless
-  box without a Polkit agent you may need to install/enable one.
-
-**If TUN takes down your network**
-
-TUN reroutes default traffic, so a bad config or a stuck tunnel can drop
-connectivity. Two recoveries:
-
-- Click **"Recover network"** in the app — it tears down the TUN routing and
-  restores normal networking without quitting.
-- **Quit the app normally** — a normal exit tears down TUN and restores routing.
-  If the app had to be force-quit, reopen it and use **Recover network**.
-
-If you hit a problem, open an issue with the app version, OS and architecture,
-the exact prompt or error, and whether **Recover network** restored connectivity.
-Do not include secrets or subscription URLs; report security issues through the
-[private security channel](./.github/SECURITY.md).
-
-### 3. All-in-One Server (Docker)
-
-The `metacubexd-server` image bundles the dashboard UI, the control agent, and
-a per-arch mihomo kernel. One container serves the panel, supervises the
-kernel, and exposes the proxy. The
-[copyable Compose example](./docs/docker-compose.yml) requires secrets through
-a local `.env` file; the inline version below shows the same runtime layout.
-
-```yaml
-# compose.yaml — proxy-only by default; TUN is an advanced override
-services:
-  metacubexd:
-    image: ghcr.io/metacubex/metacubexd-server:latest
-    restart: unless-stopped
-    environment:
-      CONTROL_TOKEN: 'change-me-control'
-      CLASH_SECRET: 'change-me-clash'
-      GITHUB_TOKEN: '' # optional read-only token for Releases API checks
-      # optional: pre-fill the connect form's backend address
-      # DEFAULT_BACKEND_URL: 'http://<host>:9090'
-      CONTROL_PORT: '8080'
-      CLASH_API_PORT: '9090'
-      MIXED_PORT: '7890'
-      TZ: 'Asia/Shanghai'
-    ports:
-      - '8080:8080' # dashboard UI + /api/control agent API
-      - '9090:9090' # mihomo Clash API + WebSocket (UI endpoint target)
-      - '7890:7890' # mixed proxy port
-    volumes:
-      - 'metacubexd-data:/data'
-
-volumes:
-  metacubexd-data: {}
+```bash
+tag=server-v0.1.0-rc.N
+sha=REPLACE_WITH_TESTED_MAIN_SHA
+git tag -a "$tag" "$sha" -m "Server release $tag"
+git push origin "refs/tags/$tag"
 ```
 
-```shell
-docker compose up -d
+工作流和镜像地址绑定到 `yhrv666/metacubexd`。其他 fork 需同步修改 [Server CI](.github/workflows/server-ci.yml)、[Server Release](.github/workflows/server-release.yml) 和[更新器](apps/server-webui/units/metacubexd-image-update.py)的仓库设置。代理和生产验收见[北京试运行手册](docs/server-pilot.zh-CN.md)。
 
-# Update
-docker compose pull && docker compose up -d
-```
+维护者可用 `bash apps/server-webui/package.sh /绝对路径/输出目录` 打包已生成网页的工作树。`release-images.sh <已校验产物目录>` 由 Server Release 调用，使用工作流提供的 `GH_REPO`、`SHA`、`TAG`、`GH_TOKEN` 和 `GITHUB_ACTOR` 打包并推送镜像。
 
-> **Keep the control surface on a trusted network.** Docker publishes the ports
-> above on all host interfaces unless you bind them to a specific address. The
-> server deliberately injects `CONTROL_TOKEN` into the browser so the same-origin
-> dashboard can call `/api/control`; consequently, that token is **not** access
-> control for the dashboard itself. Set `CONTROL_TOKEN`, but also restrict access
-> with host/network ACLs or an authenticated reverse proxy before exposing the
-> dashboard beyond a trusted LAN. An optional `GITHUB_TOKEN` is also exposed to
-> the browser for authenticated Releases checks, so use a narrowly scoped token.
-> Protect the Clash API and mixed proxy port too.
-> See [Security Policy](./.github/SECURITY.md).
+### CD 脚本参数
 
-Open `http://<host>:8080` for the dashboard. The control agent unlocks the
-kernel/profile UI automatically: the server injects `CONTROL_TOKEN` into the
-same-origin page, so the dashboard authenticates its `/api/control` probe
-without you entering the token anywhere.
+| 参数                       | 用途                                                                             |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| 无参数                     | 检查并应用可用的更新，通常由 systemd 调用。                                      |
+| `--check`                  | 检查 Release 和镜像清单。                                                        |
+| `--recover`                | 恢复中断的镜像切换。                                                             |
+| `--logs`                   | 查看最近 50 条匹配日志。隐藏例行检查，保留更新、故障和回滚。                     |
+| `--all-logs`               | 查看未过滤的最近 50 条日志。                                                     |
+| `--mode status`            | 查询面板的实际写入状态。                                                         |
+| `--mode read-only`         | 切换到只读，保留写入设置供下次使用。                                             |
+| `--mode writable`          | 使用首次指定或已保存的设置启用写入。                                             |
+| `--config PATH`            | 启动 YAML。裸机为宿主机路径，Docker 为容器内路径。                               |
+| `--kernel-home PATH`       | 内核资源目录，与 `--config` 使用同一侧的路径。                                   |
+| `--probe-file PATH`        | 宿主机上运行态探针 JSON 的绝对路径。                                             |
+| `--kernel-binary PATH`     | 裸机 Mihomo 可执行文件绝对路径，与 `--container` 二选一。                        |
+| `--container NAME`         | 正在运行的 Mihomo 容器名或 ID。                                                  |
+| `--docker-entrypoint PATH` | 可选的容器内 Mihomo 二进制绝对路径。                                             |
+| `--state-dir PATH`         | 可选的现有私有状态目录。默认 `/var/lib/metacubexd`。迁移时指定原目录可保留历史。 |
+| `--help`                   | 显示命令行帮助。                                                                 |
 
-**Point the UI endpoint at the kernel.** The dashboard talks to mihomo's Clash
-API directly (never proxied), so set the endpoint to:
+更多用法见[网页操作、探针和 Go 参数](docs/server-webui.zh-CN.md)，生产操作见[试运行和回退手册](docs/server-pilot.zh-CN.md)。
 
-| Field  | Value                            |
-| :----- | :------------------------------- |
-| URL    | `http://<host>:9090`             |
-| Secret | the `CLASH_SECRET` you set above |
-
-If the UI and Clash API use different origins, allow the dashboard origin in
-the active profile's
-[`external-controller-cors`](#unable-to-connect-to-backend-when-self-hosting-cors)
-configuration.
-
-#### Environment variables
-
-| Variable              | Default                  | Purpose                                                                                                                              |
-| :-------------------- | :----------------------- | :----------------------------------------------------------------------------------------------------------------------------------- |
-| `CONTROL_TOKEN`       | **required for control** | Bearer token for `/api/control/**`; also accepted as `?token=` for SSE. Without it, protected control routes fail closed with `503`. |
-| `CLASH_SECRET`        | _(none)_                 | Secret for mihomo's Clash API (`external-controller`). Set one and use it as the UI endpoint's **Secret**.                           |
-| `GITHUB_TOKEN`        | _(none)_                 | Optional read-only token for authenticated GitHub Releases checks. Omit it to keep anonymous requests.                               |
-| `DEFAULT_BACKEND_URL` | _(none)_                 | Optional URL that pre-fills the connect form's backend address, e.g. `http://<host>:9090`. Saved endpoints still take precedence.    |
-| `CONTROL_PORT`        | `8080`                   | Port serving the dashboard UI + control agent API.                                                                                   |
-| `CLASH_API_PORT`      | `9090`                   | Port for mihomo's Clash API + WebSocket. The UI endpoint targets this port.                                                          |
-| `MIXED_PORT`          | `7890`                   | mihomo mixed (HTTP + SOCKS) proxy port.                                                                                              |
-| `DATA_DIR`            | `/data`                  | Writable profiles, active configuration, geo data, and runtime caches.                                                               |
-| `MIHOMO_BIN`          | `/usr/local/bin/mihomo`  | Absolute path to the mihomo executable used by the server.                                                                           |
-| `TZ`                  | _(container default)_    | Timezone for logs/scheduling, e.g. `Asia/Shanghai`.                                                                                  |
-
-The named volume mounts `/data`, which holds your profiles, the active config,
-and the kernel's geo / fake-ip caches. It **must be writable** — a read-only
-data dir makes the kernel exit non-zero.
-
-#### TUN mode (advanced)
-
-TUN needs `NET_ADMIN`, the `/dev/net/tun` device, and host networking. Override
-the service:
-
-```yaml
-services:
-  metacubexd:
-    image: ghcr.io/metacubex/metacubexd-server:latest
-    restart: unless-stopped
-    network_mode: host
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - '/dev/net/tun:/dev/net/tun'
-    environment:
-      CONTROL_TOKEN: 'change-me-control'
-      CLASH_SECRET: 'change-me-clash'
-    volumes:
-      - 'metacubexd-data:/data'
-
-volumes:
-  metacubexd-data: {}
-```
-
-With `network_mode: host` the `ports:` mapping is ignored — the container
-binds `8080`/`9090`/`7890` directly on the host. Enable a `tun:` block in your
-profile's mihomo config for the tunnel to come up.
-
-### Profiles & Config Editor (desktop / server)
-
-When connected to a bundled agent (desktop app or the server image), the
-dashboard gains a **profile manager**:
-
-- Create, duplicate, rename, and delete multiple profiles.
-- Import a subscription by URL (fetched with `User-Agent: clash.meta`); the
-  `upload / download / total / expire` usage from `Subscription-Userinfo` is
-  shown on a usage card.
-- Edit any profile in an in-browser **Monaco editor with mihomo YAML schema**
-  completion and validation.
-- **Activate** a profile to compose it, validate it with `mihomo -t`, and restart
-  the kernel only after validation succeeds.
-
-Schema diagnostics are advisory and never block saving. Activation's
-`mihomo -t` check is the final validation, and the kernel restarts only after it
-passes. A **"disable validation"** toggle is available for bleeding-edge mihomo
-keys the bundled schema doesn't know yet.
-
-### Kernel versions and custom binaries
-
-Both the desktop app and the server bundle a pinned mihomo release. The current
-version is shown in the control UI and tracked in
-`packages/agent/src/kernel/assets.ts`. The desktop's kernel-version panel can
-download and switch among published mihomo versions; it does not expose an
-arbitrary local binary-path picker. The server accepts an absolute custom path
-through `MIHOMO_BIN`, which takes precedence over its bundled binary.
-
-## 🩺 Troubleshooting
-
-### "Unable to connect to backend" when self-hosting (CORS)
-
-If the dashboard loads but cannot connect to the Mihomo backend — even though
-the External Controller is reachable directly in your browser — the cause is
-usually **CORS**.
-
-When you host the dashboard on your own address (e.g. `http://192.168.1.2:8080`),
-the browser treats requests to the External Controller (e.g.
-`http://192.168.1.2:9090`) as cross-origin. Mihomo only answers cross-origin
-requests from origins listed in its `external-controller-cors` allow-list, so
-requests from your dashboard are rejected and the connection fails.
-
-Add your dashboard's origin to the allow-list in your Mihomo `config.yaml`:
-
-```yaml
-external-controller-cors:
-  allow-private-network: true
-  allow-origins:
-    - 'http://192.168.1.2:8080' # your dashboard's address
-    # or, for trusted local networks only:
-    # - '*'
-```
-
-> Tip: if you still cannot connect, open your browser's DevTools (F12) →
-> Console and look for CORS-related errors to confirm the cause.
-
-### Kernel won't start (desktop / server)
-
-When the bundled kernel fails to reach `running`:
-
-- **Server port collision.** The server defaults to control `8080`, Clash API
-  `9090`, and mixed proxy `7890`. Stop the conflicting process or change the
-  corresponding `CONTROL_PORT`, `CLASH_API_PORT`, or `MIXED_PORT` value and its
-  host port mapping.
-- **Desktop port diagnosis.** The desktop app chooses separate free loopback
-  ports for its control API, Clash API, and mixed proxy on every launch. Do not
-  assume `9090`, and do not send `/api/control` requests to the Clash endpoint;
-  use the addresses reported by the app and its logs.
-- **macOS quarantine kills the bundled binary.** An unsigned `.app` downloaded
-  from the internet has its bundled mihomo quarantined. Run
-  `xattr -dr com.apple.quarantine /Applications/MetaCubeXD.app`, then reopen it.
-- **`SIGILL` / "illegal instruction" on amd64.** Old or virtualized CPUs choke
-  on the generic amd64 build. metacubexd ships the **`-compatible`**
-  (`GOAMD64=v1`) asset specifically to avoid this; if the server uses a custom
-  `MIHOMO_BIN`, point it at the `-compatible` mihomo build.
-
-### Two log streams — which is which
-
-- **Clash logs** (the existing **Logs** page): mihomo's own log feed over the
-  Clash API WebSocket — proxy decisions, rule matches, DNS, etc.
-- **Kernel logs** (control agent, SSE): the mihomo **subprocess** stdout/stderr
-  captured by the supervisor — startup banners, crashes, config-parse errors.
-  Use these when the kernel won't start or exits unexpectedly.
-
-### Read-only data directory
-
-The kernel needs a **writable** home for `profiles/`, the active config, and geo
-/ fake-ip caches. On the server, ensure `DATA_DIR` (default `/data`) is writable.
-The desktop app stores writable state in Electron's per-user `userData`
-directory; its packaged `resources` directory is not the runtime data home.
-
-### Health check (server)
-
-The container's health endpoint is `GET /api/control/health` on
-`CONTROL_PORT` (default `8080`). A `200` means the dashboard + control agent
-are up; it does **not** assert the kernel is running (check the kernel panel
-for that).
-
-## 🛠️ Development
-
-This repository is a **pnpm 10 monorepo**:
-
-- `packages/ui` — Nuxt dashboard and static hosted panel
-- `packages/agent` — shared profile, kernel, and control-API logic
-- `apps/server` — Nitro all-in-one server
-- `apps/desktop` — Electron desktop application
-
-Install dependencies, then choose the surface you are changing:
-
-```shell
-pnpm install
-
-pnpm dev          # UI only; connect it to an existing mihomo
-pnpm dev:server   # build the UI, then run the Nitro server
-pnpm dev:desktop  # Nuxt HMR + Electron + bundled mihomo
-```
-
-Build boundaries are intentionally explicit:
-
-```shell
-pnpm build:ui       # static hosted-panel output: packages/ui/.output/public
-pnpm build:server   # Nitro/agent only: apps/server/.output
-pnpm build          # build:ui + build:server
-pnpm build:desktop  # Electron main/preload/helper bundles only; no installer
-
-pnpm typecheck      # all workspace typechecks
-pnpm lint           # workspace lint scripts
-```
-
-Official desktop installers require a generated renderer, the correct mihomo
-binary for each target architecture, and platform packaging tools; the release
-workflow assembles those steps. See [CONTRIBUTING.md](./CONTRIBUTING.md) for
-package tests, local packaging guidance, and required desktop smoke tests.
-
-## 📚 Project documentation
-
-- [Contributing guide](./CONTRIBUTING.md)
-- [Security policy and private vulnerability reporting](./.github/SECURITY.md)
-- [Domain vocabulary](./CONTEXT.md)
-- [UI product principles](./packages/ui/PRODUCT.md)
-- [UI design system](./packages/ui/DESIGN.md)
-- [Agent manual smoke tests](./packages/agent/MANUAL.md)
-- [All-in-one server Compose example](./docs/docker-compose.yml)
-- [Example mihomo configuration](./docs/config.yaml)
-
-## ⭐ Star History
-
-<a href="https://star-history.dera.page/#metacubex/metacubexd&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=metacubex/metacubexd&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=metacubex/metacubexd&type=Date" />
-    <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=metacubex/metacubexd&type=Date" width="600" />
-  </picture>
-</a>
-
-## 👥 Contributors
-
-Thanks to all the people who contribute to metacubexd!
-
-<a href="https://github.com/metacubex/metacubexd/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=metacubex/metacubexd" alt="Contributors" />
-</a>
-
-## 📄 License
-
-[MIT](./LICENSE)
-
-## 🙏 Credits
-
-- [Nuxt](https://github.com/nuxt/nuxt) - The Intuitive Vue Framework
-- [Vue.js](https://github.com/vuejs/core) - The Progressive JavaScript Framework
-- [daisyUI](https://github.com/saadeghi/daisyui) - Tailwind CSS components
-- [Tailwind CSS](https://tailwindcss.com) - Utility-first CSS framework
+[MIT 许可证](LICENSE)

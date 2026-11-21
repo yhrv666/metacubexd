@@ -19,7 +19,7 @@ go mod verify
 for arch in amd64 arm64; do
   CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -mod=readonly -trimpath -buildvcs=false -o "$stage/metacubexd-server" .
   tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$stage" -cf - metacubexd-server \
-    -C "$root" LICENSE docs/server-webui.zh-CN.md docs/server-pilot.zh-CN.md \
+    -C "$root" LICENSE README.md docs/server-webui.zh-CN.md docs/server-pilot.zh-CN.md \
     apps/server-webui/units/metacubexd-server.service apps/server-webui/units/metacubexd-validator.service \
     apps/server-webui/units/metacubexd-image-update.{py,service,timer} \
     | gzip -n > "$out/metacubexd-server-linux-$arch.tar.gz"

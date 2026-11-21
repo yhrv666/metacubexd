@@ -76,11 +76,11 @@ func startValidator(listener net.Listener, validate validator) error {
 	return server.Serve(listener)
 }
 
-func fixedValidator(home, binary, docker, image string) (validator, error) {
+func fixedValidator(home, binary, docker, image, entrypoint string) (validator, error) {
 	if !filepath.IsAbs(home) {
 		return nil, errors.New("Validator home must be absolute")
 	}
-	if binary != "" && docker != "" || binary == "" && docker == "" || binary != "" && !filepath.IsAbs(binary) || docker != "" && (!filepath.IsAbs(docker) || !imageID.MatchString(image)) {
+	if binary != "" && docker != "" || binary == "" && docker == "" || binary != "" && !filepath.IsAbs(binary) || docker != "" && (!filepath.IsAbs(docker) || !imageID.MatchString(image) || !strings.HasPrefix(entrypoint, "/")) {
 		return nil, errors.New("Select an absolute kernel binary or absolute Docker binary with the running image ID")
 	}
 	return func(ctx context.Context, data []byte) error {
@@ -102,7 +102,7 @@ func fixedValidator(home, binary, docker, image string) (validator, error) {
 		}
 		name := "mcxd-check-" + revisionID()
 		owner := strconv.Itoa(os.Geteuid()) + ":" + strconv.Itoa(os.Getegid())
-		cmd := exec.CommandContext(ctx, docker, "run", "--rm", "--pull=never", "--name", name, "--network=none", "--read-only", "--user", owner, "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=128", "--memory=256m", "--log-driver=none", "--mount", "type=bind,source="+work+",target=/config", "--entrypoint", "/mihomo", image, "-t", "-d", "/config", "-f", "/config/mcxd-candidate.yaml")
+		cmd := exec.CommandContext(ctx, docker, "run", "--rm", "--pull=never", "--name", name, "--network=none", "--read-only", "--user", owner, "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=128", "--memory=256m", "--log-driver=none", "--mount", "type=bind,source="+work+",target=/config", "--entrypoint", entrypoint, image, "-t", "-d", "/config", "-f", "/config/mcxd-candidate.yaml")
 		if cmd.Run() != nil {
 			cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
