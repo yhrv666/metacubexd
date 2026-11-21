@@ -87,6 +87,9 @@ class ImageUpdateTest(unittest.TestCase):
         self.command.assert_not_called()
         self.assertEqual(updater.installed_directory(), target)
         self.assertEqual(updater.load("installed.json")["tag"], "server-v0.1.0")
+        tag_file = target / "release-tag"
+        self.assertEqual(tag_file.read_text(), "server-v0.1.0\n")
+        self.assertEqual(tag_file.stat().st_mode & 0o777, 0o644)
 
     def test_failed_health_restores_original_link(self):
         with patch.object(updater, "extract", side_effect=self.stage), patch.object(

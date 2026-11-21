@@ -30,10 +30,12 @@ systemctl daemon-reload
 /usr/local/libexec/metacubexd-image-update.py --check
 systemctl enable --now metacubexd-image-update.timer
 systemctl list-timers metacubexd-image-update.timer
-journalctl -u metacubexd-image-update.service -n 50 --no-pager
+/usr/local/libexec/metacubexd-image-update.py --logs
 ```
 
 更新器从镜像提取并校验可执行文件，切换版本链接后通过现有 systemd 服务运行。它沿用面板密码、控制器连接和当前读写设置。登录、控制器连通性或管理状态检查失败时，自动恢复上一版。需要暂停后续检查时，运行 `systemctl disable --now metacubexd-image-update.timer`。稳定 tag 仍按下方的生产观察结果决定。
+
+`--logs` 隐藏例行检查消息，保留最近 50 条有匹配的更新、错误和回滚日志。`--all-logs` 查看未过滤的日志。面板右上角显示当前服务器发布 tag。手动安装压缩包时，使用与发布 tag 对应的版本目录名。
 
 下载和安装最多运行 30 分钟。北京在 `metacubexd-image-update.service` 的 systemd drop-in 中设置 `HTTPS_PROXY`，让 GitHub API 和 Release 资产下载使用现有的本机 HTTP 代理。
 

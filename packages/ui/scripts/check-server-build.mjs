@@ -14,6 +14,7 @@ const panelPath = join(temp, windows ? 'panel.exe' : 'panel')
 const fixturePath = join(temp, windows ? 'fixture.exe' : 'fixture')
 const password = 'synthetic-admin-fixture'
 const controller = 'synthetic-controller-fixture'
+const releaseTag = 'server-v0.1.0-rc.4'
 const perf = Number(process.env.MCXD_PERF_SECONDS || 0)
 const children = []
 let browser
@@ -77,6 +78,7 @@ async function kib(pid) {
 }
 
 try {
+  await writeFile(join(temp, 'release-tag'), releaseTag + '\n')
   build(['test', '-c', '-o', fixturePath])
   if (perf) build(['build', '-trimpath', '-o', panelPath, '.'])
   const [fixtureAddr, panelAddr] = await Promise.all([port(), port()])
@@ -143,6 +145,10 @@ try {
   }
   track(initial)
   await signIn(initial, url + '/#/connections')
+  await initial
+    .getByRole('banner')
+    .getByText(releaseTag, { exact: true })
+    .waitFor()
   await initial.locator('.conn-data-row').first().waitFor()
   const pages = [initial]
   if (perf) {

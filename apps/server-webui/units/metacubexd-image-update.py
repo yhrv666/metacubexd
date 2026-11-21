@@ -2,6 +2,7 @@
 """Apply a verified server release with the existing systemd service settings."""
 
 import argparse
+from collections import deque
 from contextlib import contextmanager
 import fcntl
 import hashlib
@@ -20,6 +21,7 @@ REPO = "yhrv666/metacubexd"
 API = f"https://api.github.com/repos/{REPO}"
 REGISTRY = f"ghcr.io/{REPO}-server"
 SERVICE = "metacubexd-server.service"
+UPDATE_SERVICE = "metacubexd-image-update.service"
 VALIDATOR = "metacubexd-validator.service"
 ROOT = Path("/opt/metacubexd-server")
 STATE = Path("/var/lib/metacubexd-image-update")
@@ -29,6 +31,7 @@ MANIFEST = "server-images.json"
 ASSET_MEDIA_TYPE = "application/octet-stream"
 HEX = re.compile(r"[0-9a-f]{64}")
 TAG = re.compile(r"server-v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(?:-rc\.([1-9][0-9]{0,8}))?")
+NO_UPDATE = "No newer server release with a published image."
 
 
 def version(tag):
@@ -234,6 +237,11 @@ def apply(release, current, ref, info, arch, revision):
     tag = release["tag_name"]
     receipt = {"tag": tag, "image": ref, "target": current.name}
     if sha256(current / BINARY) == info["binarySha256"]:
+        with tempfile.TemporaryDirectory(prefix=".release-tag-", dir=current) as temp:
+            pending_tag = Path(temp) / "release-tag"
+            pending_tag.write_text(tag + "\n", encoding="ascii")
+            pending_tag.chmod(0o644)
+            pending_tag.replace(current / "release-tag")
         save("installed.json", receipt)
         print(f"{tag} matches the installed panel executable.", flush=True)
         return
@@ -277,7 +285,7 @@ def update(check):
     installed_tag = installed.get("tag", "") if installed.get("target") == current.name else current.name.removesuffix("-image")
     release = newest_release(read_json(f"{API}/releases?per_page=100"))
     if release is None or version(release["tag_name"]) <= version(installed_tag):
-        print("No newer server release with a published image.")
+        print(NO_UPDATE)
         return
     arch = {"x86_64": "amd64", "aarch64": "arm64"}[platform.machine()]
     tag = release["tag_name"]
@@ -291,11 +299,35 @@ def update(check):
         print(f"{tag} was rolled back. Waiting for a newer release.")
 
 
+def show_logs(all_logs):
+    args = ["journalctl", "--unit", UPDATE_SERVICE, "--no-pager"]
+    if all_logs:
+        return subprocess.run([*args, "--lines", "50"]).returncode
+    description = "Check for and apply a verified MetaCubeXD server image"
+    routine = "|".join(map(re.escape, (
+        NO_UPDATE,
+        f"Starting {description}...",
+        f"Finished {description}.",
+        f"{UPDATE_SERVICE}: Deactivated successfully.",
+    )))
+    # Older journalctl versions apply --lines before --grep.
+    args.append(f"--grep=^(?!(?:{routine})$).+")
+    with subprocess.Popen(args, stdout=subprocess.PIPE, text=True, errors="replace") as journal:
+        recent = deque(journal.stdout, maxlen=50)
+        print("".join(recent), end="")
+        return journal.wait()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="Inspect the published release without changing the panel")
-    parser.add_argument("--recover", action="store_true", help="Recover an interrupted deployment")
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--check", action="store_true", help="Inspect the published release without changing the panel")
+    action.add_argument("--recover", action="store_true", help="Recover an interrupted deployment")
+    action.add_argument("--logs", action="store_true", help="Show recent deployment updates and errors")
+    action.add_argument("--all-logs", action="store_true", help="Show recent deployment logs including routine checks")
     args = parser.parse_args()
+    if args.logs or args.all_logs:
+        return show_logs(args.all_logs)
     if args.check:
         update(check=True)
     else:
@@ -308,6 +340,6 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        raise SystemExit(main())
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.TimeoutExpired) as error:
         raise SystemExit(f"MetaCubeXD image update failed: {error}") from None

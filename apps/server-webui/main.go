@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -22,6 +23,25 @@ import (
 
 //go:embed all:web
 var assets embed.FS
+
+var serverTag = regexp.MustCompile(`^server-v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-rc\.[1-9][0-9]{0,8})?$`)
+
+func deploymentTag(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "release-tag")); err == nil {
+		tag := strings.TrimSpace(string(data))
+		if serverTag.MatchString(tag) {
+			return tag
+		}
+	}
+	tag := strings.TrimSuffix(filepath.Base(dir), "-image")
+	if serverTag.MatchString(tag) {
+		return tag
+	}
+	return ""
+}
 
 func credential(path string) (string, error) {
 	info, err := os.Stat(path)
@@ -122,6 +142,11 @@ func main() {
 	}
 	app := newPanel(sha256.Sum256([]byte(password)), newKernel(origin, secret), http.FileServerFS(web))
 	app.baseConfig = *baseConfig
+	if executable, err := os.Executable(); err == nil {
+		if resolved, err := filepath.EvalSymlinks(executable); err == nil {
+			app.releaseDir = filepath.Dir(resolved)
+		}
+	}
 	if *stateDir != "" {
 		var probes probeSpec
 		if !filepath.IsAbs(*probeFile) || readPrivateJSON(*probeFile, 16<<10, &probes) != nil || !probes.valid() || !filepath.IsAbs(*validatorSocket) {

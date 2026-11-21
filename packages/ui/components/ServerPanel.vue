@@ -7,6 +7,7 @@ const password = ref('')
 const signInError = ref('')
 const controllerError = ref('')
 const version = ref('')
+const releaseTag = ref('')
 const submitting = ref(false)
 
 const links = [
@@ -15,6 +16,14 @@ const links = [
   { path: '/rules', label: 'rules' },
   { path: '/logs', label: 'logs' },
 ] as const
+
+async function checkSession() {
+  const response = await fetch('/api/session')
+  signedIn.value = response.ok
+  releaseTag.value = response.ok
+    ? ((await response.json()).releaseTag ?? '')
+    : ''
+}
 
 async function checkController() {
   if (!signedIn.value) return
@@ -43,7 +52,10 @@ async function signIn() {
     })
     signedIn.value = response.ok
     if (!response.ok) signInError.value = (await response.json()).error
-    else void checkController()
+    else {
+      await checkSession()
+      void checkController()
+    }
   } catch {
     signInError.value = '无法连接服务器面板'
   } finally {
@@ -67,7 +79,7 @@ async function signOut() {
 let timer: ReturnType<typeof setInterval> | undefined
 onMounted(async () => {
   try {
-    signedIn.value = (await fetch('/api/session')).ok
+    await checkSession()
     await checkController()
   } catch {
     signInError.value = '无法连接服务器面板'
@@ -126,8 +138,13 @@ onUnmounted(() => clearInterval(timer))
           active-class="btn-active"
           >托管配置</NuxtLink
         >
-        <span v-if="version" class="ml-auto text-sm">Mihomo {{ version }}</span>
-        <button class="btn btn-ghost btn-sm" @click="signOut">退出</button>
+        <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+          <span v-if="version" class="text-sm">Mihomo {{ version }}</span>
+          <span v-if="releaseTag" class="badge badge-outline text-xs">
+            {{ releaseTag }}
+          </span>
+          <button class="btn btn-ghost btn-sm" @click="signOut">退出</button>
+        </div>
       </header>
       <div
         v-if="controllerError"
